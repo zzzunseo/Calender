@@ -495,6 +495,38 @@ export const FOOD_DB = [
   { cat:"한식", key:"육회비빔밥", aliases:["육회비빔밥"], unit:"count", baseQty:1, protein:24, carbs:88, sugar:8, fat:14, kcal:580 },
   { cat:"한식", key:"산낙지", aliases:["산낙지"], unit:"count", baseQty:1, protein:16, carbs:4, sugar:0, fat:1.5, kcal:90 },
   { cat:"한식", key:"골뱅이소면", aliases:["골뱅이소면"], unit:"count", baseQty:1, protein:22, carbs:70, sugar:14, fat:8, kcal:470 },
+
+  // ---- 고기 부위별 (100g 생고기/구이 전 기준) ----
+  // 돼지고기
+  { cat:"고기·구이", key:"항정살(생)", aliases:["항정"], unit:"gram", baseQty:100, protein:19, carbs:0, sugar:0, fat:25, kcal:300 },
+  { cat:"고기·구이", key:"갈매기살(생)", aliases:["갈매기"], unit:"gram", baseQty:100, protein:21, carbs:0, sugar:0, fat:14, kcal:210 },
+  { cat:"고기·구이", key:"돼지앞다리살", aliases:["앞다리살","전지"], unit:"gram", baseQty:100, protein:20, carbs:0, sugar:0, fat:12, kcal:190 },
+  { cat:"고기·구이", key:"돼지뒷다리살", aliases:["뒷다리살","후지"], unit:"gram", baseQty:100, protein:21, carbs:0, sugar:0, fat:7, kcal:150 },
+  { cat:"고기·구이", key:"돼지등심", aliases:["돼지등심"], unit:"gram", baseQty:100, protein:22, carbs:0, sugar:0, fat:6, kcal:145 },
+  { cat:"고기·구이", key:"돼지안심(부위)", aliases:["돼지안심살"], unit:"gram", baseQty:100, protein:22, carbs:0, sugar:0, fat:4, kcal:125 },
+  { cat:"고기·구이", key:"오겹살", aliases:["오겹살"], unit:"gram", baseQty:100, protein:16, carbs:0, sugar:0, fat:36, kcal:395 },
+  { cat:"고기·구이", key:"돼지갈비(생)", aliases:["돼지갈비살","포크립"], unit:"gram", baseQty:100, protein:18, carbs:0, sugar:0, fat:25, kcal:300 },
+  // 소고기
+  { cat:"고기·구이", key:"소안심(생)", aliases:["소안심","안심"], unit:"gram", baseQty:100, protein:22, carbs:0, sugar:0, fat:10, kcal:180 },
+  { cat:"고기·구이", key:"채끝(생)", aliases:["채끝","채끝등심"], unit:"gram", baseQty:100, protein:21, carbs:0, sugar:0, fat:14, kcal:215 },
+  { cat:"고기·구이", key:"차돌박이(생)", aliases:["차돌"], unit:"gram", baseQty:100, protein:18, carbs:0, sugar:0, fat:30, kcal:340 },
+  { cat:"고기·구이", key:"부챗살", aliases:["부챗살","부채살"], unit:"gram", baseQty:100, protein:21, carbs:0, sugar:0, fat:12, kcal:195 },
+  { cat:"고기·구이", key:"살치살", aliases:["살치살"], unit:"gram", baseQty:100, protein:18, carbs:0, sugar:0, fat:28, kcal:325 },
+  { cat:"고기·구이", key:"토시살", aliases:["토시살"], unit:"gram", baseQty:100, protein:20, carbs:0, sugar:0, fat:16, kcal:230 },
+  { cat:"고기·구이", key:"우삼겹", aliases:["우삼겹"], unit:"gram", baseQty:100, protein:17, carbs:0, sugar:0, fat:32, kcal:355 },
+  { cat:"고기·구이", key:"소갈비살(생)", aliases:["갈비살","꽃갈비살"], unit:"gram", baseQty:100, protein:19, carbs:0, sugar:0, fat:22, kcal:280 },
+  { cat:"고기·구이", key:"양지(생)", aliases:["양지","양지머리"], unit:"gram", baseQty:100, protein:20, carbs:0, sugar:0, fat:15, kcal:220 },
+  { cat:"고기·구이", key:"사태", aliases:["사태"], unit:"gram", baseQty:100, protein:21, carbs:0, sugar:0, fat:6, kcal:140 },
+  { cat:"고기·구이", key:"우둔살", aliases:["우둔","홍두깨살"], unit:"gram", baseQty:100, protein:22, carbs:0, sugar:0, fat:4, kcal:125 },
+  // 닭·기타
+  { cat:"고기·구이", key:"닭날개", aliases:["닭날개","윙"], unit:"gram", baseQty:100, protein:20, carbs:0, sugar:0, fat:13, kcal:200 },
+  { cat:"고기·구이", key:"오리고기(생)", aliases:["오리고기","오리살"], unit:"gram", baseQty:100, protein:19, carbs:0, sugar:0, fat:28, kcal:335 },
+  { cat:"고기·구이", key:"양고기(생)", aliases:["양고기살","램구이"], unit:"gram", baseQty:100, protein:20, carbs:0, sugar:0, fat:21, kcal:280 },
+  { cat:"고기·구이", key:"양갈비(생)", aliases:["양갈비살","램찹"], unit:"gram", baseQty:100, protein:18, carbs:0, sugar:0, fat:25, kcal:300 },
+  // 꼬치류 (1꼬치 기준)
+  { cat:"고기·구이", key:"소고기꼬치", aliases:["소고기꼬치"], unit:"count", baseQty:1, protein:10, carbs:2, sugar:1, fat:6, kcal:100 },
+  { cat:"고기·구이", key:"떡꼬치", aliases:["떡꼬치"], unit:"count", baseQty:1, protein:3, carbs:35, sugar:10, fat:5, kcal:200 },
+  { cat:"고기·구이", key:"소시지꼬치", aliases:["소시지꼬치","프랑크꼬치"], unit:"count", baseQty:1, protein:8, carbs:12, sugar:4, fat:14, kcal:210 },
 ];
 const KOREAN_NUM = { "한":1, "하나":1, "두":2, "세":3, "네":4, "다섯":5, "여섯":6 };
 const COUNT_UNITS = "마리|개|조각|스쿱|공기|인분|줄|봉지|봉|잔|캔|알|모|덩이|덩어리|장|판|쪽|컵|병|팩|그릇|접시|스푼|숟갈|큰술|작은술|주먹|쌈|점|개입";

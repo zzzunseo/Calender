@@ -601,6 +601,7 @@ function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps,
         <FoodSection foods={day.foods}
           addFoods={(items)=>updateDay(k,{foods:[...day.foods, ...items], water:(day.water||0)+extraWater(items)})}
           removeFood={(id)=>updateDay(k,{foods:day.foods.filter(f=>f.id!==id)})}
+          updateFood={(id,patch)=>updateDay(k,{foods:day.foods.map(f=>f.id===id?{...f,...patch}:f)})}
           apiKey={apiKey} customFoods={customFoods}
           {...favProps} />
       </Card>
@@ -922,6 +923,7 @@ function DayEditor({ dateKey, day, schedule, onClose, updateDay, favProps, apiKe
           <FoodSection foods={draft.foods}
             addFoods={(items)=>setDraft((d)=>({ ...d, foods:[...d.foods, ...items], water:(d.water||0)+extraWater(items) }))}
             removeFood={(id)=>setDraft((d)=>({ ...d, foods:d.foods.filter(f=>f.id!==id) }))}
+            updateFood={(id,patch)=>setDraft((d)=>({ ...d, foods:d.foods.map(f=>f.id===id?{...f,...patch}:f) }))}
             compact apiKey={apiKey} customFoods={customFoods} {...favProps} />
 
           <SecLabel>수면 · 컨디션</SecLabel>
@@ -1815,7 +1817,8 @@ function NutriRow({ label, value, target, color, overType, capLabel }) {
 }
 
 // ================= 공용: 식단 섹션 =================
-function FoodSection({ foods, addFoods, removeFood, favorites, addFavorite, removeFavorite, compact, apiKey, customFoods }) {
+function FoodSection({ foods, addFoods, removeFood, updateFood, favorites, addFavorite, removeFavorite, compact, apiKey, customFoods }) {
+  const [editId, setEditId] = useState(null);
   return (
     <div>
       {favorites.length>0 && (
@@ -1830,16 +1833,69 @@ function FoodSection({ foods, addFoods, removeFood, favorites, addFavorite, remo
         </div>
       )}
       {foods.map((f)=>(
-        <div key={f.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"9px 0", borderBottom:`1px solid ${C.line}` }}>
-          <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontSize:14, fontWeight:600 }}>{f.name}</div>
-            <div style={{ fontSize:12, color:C.muted }}>단백질 {num(f.protein)}g · 탄수 {num(f.carbs)}g · 당 {num(f.sugar)}g · 지방 {num(f.fat)}g{num(f.kcal)>0?` · ${f.kcal}kcal`:""}{num(f.liquidMl)>0?` · 💧${f.liquidMl}ml`:""}</div>
+        <div key={f.id} style={{ borderBottom:`1px solid ${C.line}` }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"9px 0" }}>
+            <div style={{ flex:1, minWidth:0, cursor:"pointer" }} onClick={()=>updateFood && setEditId(editId===f.id?null:f.id)}>
+              <div style={{ fontSize:14, fontWeight:600 }}>{f.name} {updateFood && <span style={{ fontSize:10, color:C.muted }}>{editId===f.id?"▲":"✏️"}</span>}</div>
+              <div style={{ fontSize:12, color:C.muted }}>단백질 {num(f.protein)}g · 탄수 {num(f.carbs)}g · 당 {num(f.sugar)}g · 지방 {num(f.fat)}g{num(f.kcal)>0?` · ${f.kcal}kcal`:""}{num(f.liquidMl)>0?` · 💧${f.liquidMl}ml`:""}</div>
+            </div>
+            <button onClick={()=>addFavorite(f)} title="즐겨찾기" style={{ ...xBtn, color:C.amber, marginRight:6 }}>★</button>
+            <button onClick={()=>removeFood(f.id)} style={xBtn}>×</button>
           </div>
-          <button onClick={()=>addFavorite(f)} title="즐겨찾기" style={{ ...xBtn, color:C.amber, marginRight:6 }}>★</button>
-          <button onClick={()=>removeFood(f.id)} style={xBtn}>×</button>
+          {updateFood && editId===f.id && (
+            <FoodEditRow food={f} onSave={(patch)=>{ updateFood(f.id, patch); setEditId(null); }} onCancel={()=>setEditId(null)} />
+          )}
         </div>
       ))}
       <FoodAI onAdd={addFoods} compact={compact} apiKey={apiKey} customFoods={customFoods} />
+    </div>
+  );
+}
+
+// 기름 프리셋 (구이·볶음 조리유 추가) — 티스푼/큰술 기준
+const OIL_PRESETS = [
+  { label:"식용유 1작은술", kcal:40, fat:4.5 },
+  { label:"식용유 1큰술", kcal:120, fat:14 },
+  { label:"올리브유 1큰술", kcal:120, fat:14 },
+  { label:"버터 10g", kcal:72, fat:8 },
+  { label:"참기름 1큰술", kcal:120, fat:14 },
+];
+
+function FoodEditRow({ food, onSave, onCancel }) {
+  const [v, setV] = useState({
+    protein:String(num(food.protein)), carbs:String(num(food.carbs)), sugar:String(num(food.sugar)),
+    fat:String(num(food.fat)), kcal:String(num(food.kcal)), liquidMl:String(num(food.liquidMl)),
+  });
+  const addOil = (o) => setV((s)=>({ ...s, kcal:String(num(s.kcal)+o.kcal), fat:String(Math.round((num(s.fat)+o.fat)*10)/10) }));
+  const F = (label, key, unit) => (
+    <div style={{ flex:1, minWidth:60 }}>
+      <div style={{ fontSize:9.5, color:C.muted, marginBottom:3 }}>{label}</div>
+      <input value={v[key]} onChange={(e)=>setV({...v,[key]:e.target.value})} inputMode="decimal"
+        style={{...inp, width:"100%", boxSizing:"border-box", padding:"7px 8px", fontSize:13}} />
+    </div>
+  );
+  return (
+    <div style={{ background:C.surface2, borderRadius:12, padding:"12px", marginBottom:10 }}>
+      <div style={{ fontSize:11, color:C.muted, fontWeight:700, marginBottom:7 }}>영양성분 수정</div>
+      <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+        {F("단백질 g","protein")}{F("탄수 g","carbs")}{F("당류 g","sugar")}
+      </div>
+      <div style={{ display:"flex", gap:6, marginTop:7 }}>
+        {F("지방 g","fat")}{F("칼로리","kcal")}{F("수분 ml","liquidMl")}
+      </div>
+
+      <div style={{ fontSize:11, color:C.muted, fontWeight:700, margin:"12px 0 6px" }}>🛢️ 구이·조리 기름 추가 <span style={{opacity:0.7}}>(탭하면 칼로리·지방 더해짐)</span></div>
+      <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+        {OIL_PRESETS.map((o)=>(
+          <button key={o.label} onClick={()=>addOil(o)} style={{ ...chip(false, C.amber), padding:"6px 9px", fontSize:11 }}>+ {o.label}</button>
+        ))}
+      </div>
+
+      <div style={{ display:"flex", gap:8, marginTop:12 }}>
+        <button onClick={onCancel} style={{...ghost, flex:1}}>취소</button>
+        <button onClick={()=>onSave({ protein:num(v.protein), carbs:num(v.carbs), sugar:num(v.sugar), fat:num(v.fat), kcal:num(v.kcal), liquidMl:num(v.liquidMl) })}
+          style={{...primary(TYPES.legs.color), flex:2}}>저장</button>
+      </div>
     </div>
   );
 }
