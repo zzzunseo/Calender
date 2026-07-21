@@ -527,6 +527,55 @@ export const FOOD_DB = [
   { cat:"고기·구이", key:"소고기꼬치", aliases:["소고기꼬치"], unit:"count", baseQty:1, protein:10, carbs:2, sugar:1, fat:6, kcal:100 },
   { cat:"고기·구이", key:"떡꼬치", aliases:["떡꼬치"], unit:"count", baseQty:1, protein:3, carbs:35, sugar:10, fat:5, kcal:200 },
   { cat:"고기·구이", key:"소시지꼬치", aliases:["소시지꼬치","프랑크꼬치"], unit:"count", baseQty:1, protein:8, carbs:12, sugar:4, fat:14, kcal:210 },
+
+  // ---- 소스·양념 (1큰술 ≈ 동전크기 15g 기준) ----
+  // 기본 양념
+  { cat:"소스·양념", key:"소금", aliases:["소금"], unit:"count", baseQty:1, protein:0, carbs:0, sugar:0, fat:0, kcal:0 },
+  { cat:"소스·양념", key:"후추", aliases:["후추"], unit:"count", baseQty:1, protein:0, carbs:1, sugar:0, fat:0, kcal:5 },
+  { cat:"소스·양념", key:"설탕", aliases:["설탕"], unit:"count", baseQty:1, protein:0, carbs:12, sugar:12, fat:0, kcal:48 },
+  { cat:"소스·양념", key:"참기름", aliases:["참기름"], unit:"count", baseQty:1, protein:0, carbs:0, sugar:0, fat:14, kcal:120 },
+  { cat:"소스·양념", key:"들기름", aliases:["들기름"], unit:"count", baseQty:1, protein:0, carbs:0, sugar:0, fat:14, kcal:120 },
+  { cat:"소스·양념", key:"올리브유", aliases:["올리브유","올리브오일"], unit:"count", baseQty:1, protein:0, carbs:0, sugar:0, fat:14, kcal:120 },
+  { cat:"소스·양념", key:"식용유", aliases:["식용유","카놀라유"], unit:"count", baseQty:1, protein:0, carbs:0, sugar:0, fat:14, kcal:120 },
+  { cat:"소스·양념", key:"버터", aliases:["버터"], unit:"count", baseQty:1, protein:0.1, carbs:0, sugar:0, fat:11, kcal:100 },
+  { cat:"소스·양념", key:"마요네즈", aliases:["마요네즈","마요"], unit:"count", baseQty:1, protein:0.2, carbs:1, sugar:1, fat:11, kcal:100 },
+  // 일반 소스
+  { cat:"소스·양념", key:"케찹", aliases:["케찹","케첩","토마토케찹"], unit:"count", baseQty:1, protein:0.2, carbs:5, sugar:4, fat:0, kcal:20 },
+  { cat:"소스·양념", key:"머스타드", aliases:["머스타드","머스터드"], unit:"count", baseQty:1, protein:0.5, carbs:1, sugar:1, fat:0.5, kcal:12 },
+  { cat:"소스·양념", key:"허니머스타드", aliases:["허니머스타드"], unit:"count", baseQty:1, protein:0.3, carbs:6, sugar:5, fat:2, kcal:45 },
+  { cat:"소스·양념", key:"칠리소스", aliases:["칠리소스","스위트칠리"], unit:"count", baseQty:1, protein:0.2, carbs:8, sugar:7, fat:0, kcal:35 },
+  { cat:"소스·양념", key:"굴소스", aliases:["굴소스"], unit:"count", baseQty:1, protein:1, carbs:5, sugar:3, fat:0, kcal:25 },
+  { cat:"소스·양념", key:"간장", aliases:["간장"], unit:"count", baseQty:1, protein:1.3, carbs:1.5, sugar:0.5, fat:0, kcal:11 },
+  { cat:"소스·양념", key:"진간장", aliases:["진간장"], unit:"count", baseQty:1, protein:1.3, carbs:2, sugar:1, fat:0, kcal:14 },
+  { cat:"소스·양념", key:"된장", aliases:["된장"], unit:"count", baseQty:1, protein:2, carbs:3, sugar:1, fat:1, kcal:30 },
+  { cat:"소스·양념", key:"고추장", aliases:["고추장"], unit:"count", baseQty:1, protein:1, carbs:9, sugar:5, fat:0.5, kcal:45 },
+  { cat:"소스·양념", key:"쌈장", aliases:["쌈장"], unit:"count", baseQty:1, protein:1.5, carbs:5, sugar:2, fat:1, kcal:38 },
+  { cat:"소스·양념", key:"초고추장", aliases:["초고추장"], unit:"count", baseQty:1, protein:0.8, carbs:10, sugar:7, fat:0.3, kcal:48 },
+  { cat:"소스·양념", key:"스테이크소스", aliases:["스테이크소스","A1소스"], unit:"count", baseQty:1, protein:0.3, carbs:4, sugar:3, fat:0, kcal:18 },
+  { cat:"소스·양념", key:"바베큐소스", aliases:["바베큐소스","BBQ소스"], unit:"count", baseQty:1, protein:0.2, carbs:7, sugar:6, fat:0, kcal:30 },
+  { cat:"소스·양념", key:"돈까스소스", aliases:["돈까스소스","돈가스소스"], unit:"count", baseQty:1, protein:0.3, carbs:6, sugar:4, fat:0, kcal:28 },
+  { cat:"소스·양념", key:"타르타르소스", aliases:["타르타르소스","타르타르"], unit:"count", baseQty:1, protein:0.3, carbs:2, sugar:1, fat:8, kcal:75 },
+  { cat:"소스·양념", key:"치킨소스", aliases:["치킨소스","양념치킨소스"], unit:"count", baseQty:1, protein:0.5, carbs:9, sugar:7, fat:1, kcal:48 },
+  { cat:"소스·양념", key:"칠리마요", aliases:["칠리마요"], unit:"count", baseQty:1, protein:0.3, carbs:4, sugar:3, fat:9, kcal:95 },
+  { cat:"소스·양념", key:"스리라차", aliases:["스리라차","시라차"], unit:"count", baseQty:1, protein:0.2, carbs:2, sugar:2, fat:0, kcal:10 },
+  { cat:"소스·양념", key:"핫소스", aliases:["핫소스","타바스코"], unit:"count", baseQty:1, protein:0.1, carbs:0.5, sugar:0, fat:0, kcal:3 },
+  { cat:"소스·양념", key:"파스타소스", aliases:["파스타소스","토마토소스"], unit:"count", baseQty:1, protein:0.5, carbs:4, sugar:3, fat:1, kcal:25 },
+  { cat:"소스·양념", key:"발사믹", aliases:["발사믹","발사믹식초"], unit:"count", baseQty:1, protein:0.1, carbs:3, sugar:2, fat:0, kcal:14 },
+  { cat:"소스·양념", key:"오리엔탈드레싱", aliases:["오리엔탈드레싱"], unit:"count", baseQty:1, protein:0.2, carbs:3, sugar:2, fat:4, kcal:50 },
+  { cat:"소스·양념", key:"시저드레싱", aliases:["시저드레싱"], unit:"count", baseQty:1, protein:0.5, carbs:1, sugar:1, fat:8, kcal:75 },
+  { cat:"소스·양념", key:"랜치드레싱", aliases:["랜치드레싱","랜치소스"], unit:"count", baseQty:1, protein:0.3, carbs:1, sugar:1, fat:9, kcal:80 },
+  // 저칼로리 (비비드 등 제로/라이트 계열)
+  { cat:"소스·양념", key:"저칼로리 케찹", aliases:["저칼로리 케찹","제로케찹","비비드케찹"], unit:"count", baseQty:1, protein:0.1, carbs:1, sugar:0, fat:0, kcal:5 },
+  { cat:"소스·양념", key:"저칼로리 머스타드", aliases:["저칼로리 머스타드","제로머스타드"], unit:"count", baseQty:1, protein:0.3, carbs:0.5, sugar:0, fat:0, kcal:5 },
+  { cat:"소스·양념", key:"저칼로리 칠리소스", aliases:["저칼로리 칠리소스","제로칠리소스"], unit:"count", baseQty:1, protein:0.1, carbs:1.5, sugar:0, fat:0, kcal:7 },
+  { cat:"소스·양념", key:"저칼로리 굴소스", aliases:["저칼로리 굴소스","제로굴소스"], unit:"count", baseQty:1, protein:0.8, carbs:2, sugar:0, fat:0, kcal:10 },
+  { cat:"소스·양념", key:"저칼로리 마요", aliases:["저칼로리 마요","제로마요","라이트마요"], unit:"count", baseQty:1, protein:0.2, carbs:1, sugar:0.5, fat:3, kcal:30 },
+  { cat:"소스·양념", key:"저칼로리 바베큐", aliases:["저칼로리 바베큐","제로바베큐"], unit:"count", baseQty:1, protein:0.2, carbs:2, sugar:0, fat:0, kcal:10 },
+  { cat:"소스·양념", key:"저칼로리 스테이크소스", aliases:["저칼로리 스테이크소스"], unit:"count", baseQty:1, protein:0.3, carbs:1.5, sugar:0, fat:0, kcal:8 },
+  { cat:"소스·양념", key:"저칼로리 돈까스소스", aliases:["저칼로리 돈까스소스"], unit:"count", baseQty:1, protein:0.3, carbs:2, sugar:0, fat:0, kcal:10 },
+  { cat:"소스·양념", key:"저칼로리 데리야끼", aliases:["저칼로리 데리야끼","제로데리야끼"], unit:"count", baseQty:1, protein:0.5, carbs:2, sugar:0, fat:0, kcal:10 },
+  { cat:"소스·양념", key:"제로 스위트칠리", aliases:["제로 스위트칠리","저칼로리 스위트칠리"], unit:"count", baseQty:1, protein:0.1, carbs:2, sugar:0, fat:0, kcal:8 },
+  { cat:"소스·양념", key:"데리야끼소스", aliases:["데리야끼소스","데리야끼"], unit:"count", baseQty:1, protein:0.6, carbs:6, sugar:5, fat:0, kcal:28 },
 ];
 const KOREAN_NUM = { "한":1, "하나":1, "두":2, "세":3, "네":4, "다섯":5, "여섯":6 };
 const COUNT_UNITS = "마리|개|조각|스쿱|공기|인분|줄|봉지|봉|잔|캔|알|모|덩이|덩어리|장|판|쪽|컵|병|팩|그릇|접시|스푼|숟갈|큰술|작은술|주먹|쌈|점|개입";
@@ -653,7 +702,7 @@ export function localBrandSearch(text, customEntries = []) {
 }
 
 // 내 음식 등록 시 선택 가능한 카테고리 목록
-export const CATEGORIES = ["기본재료", "유제품·보충제", "한식", "반찬·야채", "국·탕", "면류", "분식", "중식", "일식", "아시안", "치킨", "버거", "피자", "빵류", "샐러드·건강식", "고기·구이", "과일", "편의점", "카페", "음료", "술·안주", "디저트", "간식", "기타"];
+export const CATEGORIES = ["기본재료", "유제품·보충제", "한식", "반찬·야채", "국·탕", "면류", "분식", "중식", "일식", "아시안", "치킨", "버거", "피자", "빵류", "샐러드·건강식", "고기·구이", "과일", "소스·양념", "편의점", "카페", "음료", "술·안주", "디저트", "간식", "기타"];
 
 // 사용자가 이름+영양성분을 입력해 만드는 커스텀 음식 항목 생성 헬퍼
 // cat: 사용자가 고른 카테고리 (없으면 "기타")
@@ -742,6 +791,7 @@ const SERVING_BY_CAT = {
   "분식": "1인분 기준",
   "고기·구이": "1인분(150g) 기준",
   "과일": "1회분 기준",
+  "소스·양념": "1큰술(≈동전크기) 기준",
   "디저트": "1개 기준",
   "술·안주": "1잔/1인분 기준",
 };
