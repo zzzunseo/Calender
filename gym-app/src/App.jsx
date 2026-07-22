@@ -1201,11 +1201,20 @@ function FoodSearch({ addFoodsToday, customFoods, mutate }) {
   const cats = allCategories(customFoods);
   const results = searchAllFoods(q, customFoods, cat);
 
-  const [qty, setQty] = useState({}); // 항목별 선택 수량 (기본 1)
+  const [qty, setQty] = useState({}); // 항목별 선택 수량 (기본 1인분)
+  const [gramMode, setGramMode] = useState({}); // 항목별 g 직접입력값 (있으면 g 기준)
+  const multOf = (e) => {
+    const g = gramMode[e.key];
+    if (g!=null && g!=="") { const gv=num(g); return gv>0 ? gv/gramsPerServing(e) : 1; }
+    return qty[e.key] || 1;
+  };
   const addToToday = (e) => {
-    const mult = qty[e.key] || 1;
+    const mult = multOf(e);
+    const g = gramMode[e.key];
+    const usingGram = g!=null && g!=="" && num(g)>0;
     const r1 = (v)=>Math.round(v*mult*10)/10;
-    addFoodsToday([{ id:uid(), name: mult===1?e.key:`${e.key} ${mult}인분`,
+    const label = usingGram ? `${e.key} ${num(g)}g` : (Math.abs(mult-1)<0.001 ? e.key : `${e.key} ${Math.round(mult*100)/100}인분`);
+    addFoodsToday([{ id:uid(), name: label,
       protein:r1(e.protein), carbs:r1(e.carbs), sugar:r1(e.sugar), fat:r1(e.fat), kcal:Math.round(e.kcal*mult),
       liquidMl: e.liquidMl ? Math.round(e.liquidMl*mult) : 0 }]);
     setAdded((a)=>({ ...a, [e.key]:true }));
