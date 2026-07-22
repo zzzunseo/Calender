@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { lookupLocalFoods, localBrandSearch, makeCustomEntry, searchAllFoods, allCategories, servingLabel, displayCat, CATEGORIES } from "./foodDB.js";
+import { lookupLocalFoods, localBrandSearch, makeCustomEntry, searchAllFoods, allCategories, servingLabel, displayCat, CATEGORIES, gramsPerServing } from "./foodDB.js";
 
 // ================= 상수 =================
 const TYPES = {
@@ -1220,6 +1220,14 @@ function FoodSearch({ addFoodsToday, customFoods, mutate }) {
     setAddOpen(false);
   };
   const removeCustomFood = (key) => mutate((prev)=>({ ...prev, customFoods:prev.customFoods.filter(e=>e.key!==key) }));
+  const [editKey, setEditKey] = useState(null);
+  const saveEdit = (orig, patch) => {
+    const entry = { ...orig, ...patch, custom:true, cat: patch.cat||orig.cat,
+      aliases: Array.from(new Set([patch.key||orig.key, ...(orig.aliases||[])])) };
+    if (!(patch.liquidMl>0)) delete entry.liquidMl;
+    mutate((prev)=>({ ...prev, customFoods:[...prev.customFoods.filter(e=>e.key!==orig.key && e.key!==entry.key), entry] }));
+    setEditKey(null);
+  };
 
   // 검색 결과 설명 문구
   const contextLabel = () => {
@@ -1328,12 +1336,17 @@ function FoodSearch({ addFoodsToday, customFoods, mutate }) {
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
                 <span style={{ fontSize:15, fontWeight:800, letterSpacing:-0.2 }}>{e.key}</span>
-                {e.custom && <span style={{ fontSize:9.5, fontWeight:800, color:"#141519", background:TYPES.legs.color, borderRadius:5, padding:"2px 6px" }}>내 음식</span>}
+                {e.custom && <span style={{ fontSize:9.5, fontWeight:800, color:"#141519", background:TYPES.legs.color, borderRadius:5, padding:"2px 6px" }}>{e.aliases?.length>1?"수정됨":"내 음식"}</span>}
               </div>
               <div style={{ fontSize:11, color:C.muted, marginTop:4 }}>{displayCat(e)} · {servingLabel(e)}</div>
             </div>
+            <button onClick={()=>setEditKey(editKey===e.key?null:e.key)} title="수정" style={{ ...xBtn, fontSize:14 }}>✏️</button>
             {e.custom && <button onClick={()=>removeCustomFood(e.key)} style={xBtn}>×</button>}
           </div>
+
+          {editKey===e.key && (
+            <DBFoodEdit entry={e} onSave={(patch)=>saveEdit(e, patch)} onCancel={()=>setEditKey(null)} />
+          )}
 
           {/* 영양성분 표 */}
           <div style={{ display:"grid", gridTemplateColumns:"repeat(5, 1fr)", gap:4, marginTop:12,
@@ -1349,21 +1362,72 @@ function FoodSearch({ addFoodsToday, customFoods, mutate }) {
             <div style={{ fontSize:11, color:"#6BC5F0", fontWeight:700, marginTop:8 }}>💧 수분 {e.liquidMl}ml · 추가 시 물 {Math.round(e.liquidMl/250*10)/10}잔 자동 반영</div>
           )}
 
-          {/* 수량 선택 + 추가 */}
+          {/* 수량 선택 (인분 칩) */}
           <div style={{ display:"flex", gap:5, marginTop:10, alignItems:"center" }}>
-            {[0.5,1,1.5,2].map((m)=>(
-              <button key={m} onClick={()=>setQty((s)=>({ ...s, [e.key]:m }))}
-                style={{ ...chip((qty[e.key]||1)===m, TYPES.push.color), flex:1, textAlign:"center", padding:"8px 0", fontSize:12 }}>
-                {m===0.5?"½":m}인분
-              </button>
-            ))}
+            {[0.5,1,1.5,2].map((m)=>{
+              const active = (gramMode[e.key]==null||gramMode[e.key]==="") && (qty[e.key]||1)===m;
+              return (
+                <button key={m} onClick={()=>{ setQty((s)=>({ ...s, [e.key]:m })); setGramMode((s)=>({ ...s, [e.key]:"" })); }}
+                  style={{ ...chip(active, TYPES.push.color), flex:1, textAlign:"center", padding:"8px 0", fontSize:12 }}>
+                  {m===0.5?"½":m}인분
+                </button>
+              );
+            })}
+          </div>
+          {/* g 직접 입력 */}
+          <div style={{ display:"flex", gap:6, marginTop:6, alignItems:"center" }}>
+            <span style={{ fontSize:11, color:C.muted, flexShrink:0 }}>또는 직접</span>
+            <div style={{ position:"relative", flex:1 }}>
+              <input value={gramMode[e.key]||""} onChange={(ev)=>setGramMode((s)=>({ ...s, [e.key]:ev.target.value }))}
+                inputMode="decimal" placeholder={`${gramsPerServing(e)} = 1인분`}
+                style={{...inp, width:"100%", boxSizing:"border-box", padding:"7px 26px 7px 10px", fontSize:12.5,
+                  borderColor: (gramMode[e.key]&&num(gramMode[e.key])>0)?TYPES.push.color:C.line}} />
+              <span style={{ position:"absolute", right:9, top:"50%", transform:"translateY(-50%)", fontSize:11, color:C.muted }}>g</span>
+            </div>
           </div>
           <button onClick={()=>addToToday(e)} style={{...ghost, width:"100%", marginTop:8,
             color:added[e.key]?TYPES.legs.color:C.muted, borderColor:added[e.key]?TYPES.legs.color:C.line }}>
-            {added[e.key]?"오늘 식단에 추가됨 ✓":`오늘 식단에 추가${(qty[e.key]||1)!==1?` (${(qty[e.key])}인분 · ${Math.round(e.kcal*(qty[e.key]||1))}kcal)`:""}`}
+            {added[e.key]?"오늘 식단에 추가됨 ✓":(()=>{ const mult=multOf(e); const isNon=Math.abs(mult-1)>0.001; const g=gramMode[e.key]; const usingG=g&&num(g)>0;
+              return `오늘 식단에 추가${isNon?` (${usingG?`${num(g)}g`:`${Math.round(mult*100)/100}인분`} · ${Math.round(e.kcal*mult)}kcal)`:""}`; })()}
           </button>
         </div>
       ))}
+    </div>
+  );
+}
+
+// 음식 DB 항목 편집 폼 (이름·영양·수분 수정 → override 저장)
+function DBFoodEdit({ entry, onSave, onCancel }) {
+  const [v, setV] = useState({
+    key: entry.key, protein:String(num(entry.protein)), carbs:String(num(entry.carbs)),
+    sugar:String(num(entry.sugar)), fat:String(num(entry.fat)), kcal:String(num(entry.kcal)),
+    liquidMl:String(num(entry.liquidMl)),
+  });
+  const F = (label, key, wide) => (
+    <div style={{ flex:wide?"1 1 100%":1, minWidth:60 }}>
+      <div style={{ fontSize:9.5, color:C.muted, marginBottom:3 }}>{label}</div>
+      <input value={v[key]} onChange={(ev)=>setV({...v,[key]:ev.target.value})} inputMode={key==="key"?"text":"decimal"}
+        style={{...inp, width:"100%", boxSizing:"border-box", padding:"8px", fontSize:13}} />
+    </div>
+  );
+  return (
+    <div style={{ background:C.surface2, borderRadius:12, padding:"12px", marginTop:12 }}>
+      <div style={{ fontSize:11, color:C.muted, fontWeight:700, marginBottom:7 }}>음식 정보 수정 <span style={{opacity:0.7}}>(1인분 기준)</span></div>
+      <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>{F("이름","key",true)}</div>
+      <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:7 }}>
+        {F("단백질 g","protein")}{F("탄수 g","carbs")}{F("당류 g","sugar")}
+      </div>
+      <div style={{ display:"flex", gap:6, marginTop:7 }}>
+        {F("지방 g","fat")}{F("칼로리","kcal")}{F("수분 ml","liquidMl")}
+      </div>
+      <div style={{ fontSize:10.5, color:C.muted, marginTop:8, lineHeight:1.5 }}>
+        수정하면 내 음식으로 저장돼서, 다음부터 검색·기록할 때 이 값이 쓰여요.
+      </div>
+      <div style={{ display:"flex", gap:8, marginTop:10 }}>
+        <button onClick={onCancel} style={{...ghost, flex:1}}>취소</button>
+        <button onClick={()=>onSave({ key:v.key.trim()||entry.key, protein:num(v.protein), carbs:num(v.carbs), sugar:num(v.sugar), fat:num(v.fat), kcal:num(v.kcal), liquidMl:num(v.liquidMl) })}
+          style={{...primary(TYPES.legs.color), flex:2}}>저장</button>
+      </div>
     </div>
   );
 }

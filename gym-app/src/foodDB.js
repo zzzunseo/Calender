@@ -623,6 +623,14 @@ const DEFAULT_GRAMS_BY_CAT = {
   "반찬·야채":80, "과일":150, "유제품·보충제":250, "기본재료":100, "기타":300,
 };
 
+// 이 음식의 "1인분(1개/1회분)"이 몇 g인지 반환. 명시값 > 밥 등 gramsPerUnit > 카테고리 평균 순.
+export function gramsPerServing(entry) {
+  if (entry.gramsPerServing) return entry.gramsPerServing;
+  if (entry.unit === "gram") return entry.baseQty;
+  if (entry.gramsPerUnit) return entry.gramsPerUnit;
+  return DEFAULT_GRAMS_BY_CAT[entry.cat] || 300;
+}
+
 function parseAmountForEntry(segment, entry) {
   if (entry.unit === "gram") {
     // 그램 단위: kg → g 순으로, 분수도 지원 ("1/2kg")
@@ -640,7 +648,7 @@ function parseAmountForEntry(segment, entry) {
   }
   // count 기반이지만 그램으로 말한 경우 — gramsPerUnit(정확) → 카테고리 평균(근사) 순으로 환산
   // 예: 제육볶음(1인분≈350g) 200g → 0.57인분
-  const perUnit = entry.gramsPerUnit || DEFAULT_GRAMS_BY_CAT[entry.cat] || 300;
+  const perUnit = entry.gramsPerServing || entry.gramsPerUnit || DEFAULT_GRAMS_BY_CAT[entry.cat] || 300;
   let gm = segment.match(/(\d+)\s*\/\s*(\d+)\s*kg/i);
   if (gm) return (parseInt(gm[1],10)/parseInt(gm[2],10)*1000) / perUnit;
   gm = segment.match(/(\d+(?:\.\d+)?)\s*kg/i);
@@ -669,7 +677,8 @@ function matchEntry(segment, entries) {
 // customEntries: 사용자가 직접 추가한 음식 목록 (기본 DB보다 우선 매칭)
 // 매칭 안 된 부분은 unmatched로 반환해서 AI 보완 또는 직접입력으로 유도.
 export function lookupLocalFoods(text, customEntries = []) {
-  const all = [...customEntries, ...FOOD_DB];
+  const overrideKeys = new Set(customEntries.map((e)=>e.key));
+  const all = [...customEntries, ...FOOD_DB.filter((e)=>!overrideKeys.has(e.key))];
   const segments = text.split(/[,\n·、]/).map((s) => s.trim()).filter(Boolean);
   const matched = [];
   const unmatched = [];
@@ -733,7 +742,8 @@ const toChosung = (s) => {
 };
 
 export function searchAllFoods(query = "", customEntries = [], category = null) {
-  const all = [...customEntries, ...FOOD_DB];
+  const overrideKeys = new Set(customEntries.map((e)=>e.key));
+  const all = [...customEntries, ...FOOD_DB.filter((e)=>!overrideKeys.has(e.key))];
   const qRaw = query.trim();
   const q = normSearch(qRaw);
   const isChosungQuery = /^[ㄱ-ㅎ]+$/.test(qRaw.replace(/\s+/g,"")); // 초성만 입력한 경우
@@ -796,9 +806,14 @@ const SERVING_BY_CAT = {
   "술·안주": "1잔/1인분 기준",
 };
 export function servingLabel(entry) {
+  const g = gramsPerServing(entry);
   if (entry.unit === "gram") return `${entry.baseQty}g 기준`;
-  if (entry.custom) return "1인분 기준";
-  return SERVING_BY_CAT[entry.cat] || "1인분 기준";
+  if (entry.cat === "소스·양념") return "1큰술(≈15g) 기준";
+  const base = (entry.custom ? "1인분 기준" : (SERVING_BY_CAT[entry.cat] || "1인분 기준"));
+  const isDrink = ["음료","카페"].includes(entry.cat) || entry.liquidMl>0;
+  const amount = isDrink ? `≈${entry.liquidMl||g}ml` : `≈${g}g`;
+  // "1인분 기준" → "1인분(≈350g) 기준", "1잔 기준" → "1잔(≈355ml) 기준"
+  return base.replace(/(1[^\s(]*)(\s*기준)/, `$1(${amount})$2`);
 }
 
 // 목록에 표시할 카테고리명 (예전 "내 음식" 저장분은 "기타"로)
