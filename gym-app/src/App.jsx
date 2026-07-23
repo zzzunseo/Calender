@@ -78,9 +78,32 @@ const dowOf = (dk) => { const [y,m,d]=dk.split("-").map(Number); return new Date
 const last7 = () => [...Array(7)].map((_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); return keyOf(d.getFullYear(),d.getMonth(),d.getDate()); });
 // 오늘 기준 최근 n일의 날짜키 배열 (과거→오늘 순)
 const lastNDays = (n) => [...Array(n)].map((_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(n-1-i)); return keyOf(d.getFullYear(),d.getMonth(),d.getDate()); });
+// 조건을 만족하는 날의 연속 기록: 현재 진행 중 연속(current)과 역대 최고(best)
+const streakInfo = (schedule, checkFn) => {
+  let current = 0;
+  const base = new Date();
+  if (checkFn(todayKey())) current++;
+  for (let i=1;i<400;i++){ const dd=new Date(); dd.setDate(base.getDate()-i); const kk=keyOf(dd.getFullYear(),dd.getMonth(),dd.getDate()); if(checkFn(kk)) current++; else break; }
+  const keys = Object.keys(schedule||{});
+  if (!keys.length) return { current, best: current };
+  const start = new Date(keys.sort()[0]+"T00:00:00");
+  const end = new Date();
+  let best=0, run=0;
+  for (let d=new Date(start); d<=end; d.setDate(d.getDate()+1)) {
+    const kk = keyOf(d.getFullYear(), d.getMonth(), d.getDate());
+    if (checkFn(kk)) { run++; if(run>best) best=run; } else run=0;
+  }
+  return { current, best: Math.max(best, current) };
+};
 // 기간 프리셋: 일간=오늘, 주간=최근7일, 월간=최근30일
 const rangeDays = (range) => range==="day" ? [todayKey()] : range==="week" ? lastNDays(7) : lastNDays(30);
 const rangeLabel = (range) => range==="day" ? "오늘" : range==="week" ? "최근 7일" : "최근 30일";
+// 직전 동일 길이 기간 (주간이면 그 전 7일, 월간이면 그 전 30일, 일간이면 어제)
+const prevRangeDays = (range) => {
+  const n = range==="day" ? 1 : range==="week" ? 7 : 30;
+  return [...Array(n)].map((_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(2*n-1-i)); return keyOf(d.getFullYear(),d.getMonth(),d.getDate()); });
+};
+const compareLabel = (range) => range==="day" ? "어제 대비" : range==="week" ? "지난주 대비" : "지난달 대비";
 const emptyDay = () => ({ type:null, parts:[], cardio:null, foods:[], lifts:[], note:"", sleep:null, water:0, partSets:{}, mainLift:null, creatine:false, mood:null, diary:"", habitLog:{} });
 
 const normalize = (d) => ({
@@ -96,6 +119,7 @@ const normalize = (d) => ({
   routines: d.routines || [],
   habits: d.habits || [],
   updatedAt: d.updatedAt || 0,
+  lastBackupAt: d.lastBackupAt || 0,
 });
 
 const NUTRI_PROMPT = `아래는 사용자가 먹은 음식/보충제(프로틴 쉐이크 등) 설명이야.
@@ -285,7 +309,7 @@ export default function App() {
       <div key={tab} className="tab-content">
         {tab==="today" && <Today data={data} updateDay={updateDay} addFoodsToday={addFoodsToday} target={proteinTarget()} tdee={computeTDEE(data.profile, latestWeight())} weight={latestWeight()} favProps={favProps} apiKey={data.profile.apiKey} customFoods={data.customFoods} />}
         {tab==="calendar" && <Calendar data={data} persist={persist} updateDay={updateDay} favProps={favProps} apiKey={data.profile.apiKey} customFoods={data.customFoods} routines={data.routines} mutate={mutate} />}
-        {tab==="foods" && <Foods addFoodsToday={addFoodsToday} apiKey={data.profile.apiKey} customFoods={data.customFoods} mutate={mutate} />}
+        {tab==="foods" && <Foods addFoodsToday={addFoodsToday} apiKey={data.profile.apiKey} customFoods={data.customFoods} mutate={mutate} schedule={data.schedule} />}
         {tab==="study" && <Study data={data} persist={persist} mutate={mutate} />}
         {tab==="stats" && <Stats data={data} target={proteinTarget()} tdee={computeTDEE(data.profile, latestWeight())} weight={latestWeight()} />}
         {tab==="body" && <Body data={data} persist={persist} mutate={mutate} target={proteinTarget()} latestWeight={latestWeight()} tdee={computeTDEE(data.profile, latestWeight())} />}
@@ -463,6 +487,17 @@ function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps,
         <Bars7 values={proteinByDay} color={TYPES.legs.color} target={target?target.low:null} suffix="g" />
       </Card>
 
+      {/* 식단 */}
+      <Card>
+        <Row><span style={lbl}>먹은 음식</span></Row>
+        <FoodSection foods={day.foods}
+          addFoods={(items)=>updateDay(k,{foods:[...day.foods, ...items], water:(day.water||0)+extraWater(items)})}
+          removeFood={(id)=>updateDay(k,{foods:day.foods.filter(f=>f.id!==id)})}
+          updateFood={(id,patch)=>updateDay(k,{foods:day.foods.map(f=>f.id===id?{...f,...patch}:f)})}
+          apiKey={apiKey} customFoods={customFoods}
+          {...favProps} />
+      </Card>
+
       {/* 물 섭취 */}
       <Card>
         <Row><span style={lbl}>물</span>
@@ -593,17 +628,6 @@ function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps,
         <textarea value={day.diary||""} onChange={(e)=>updateDay(k,{diary:e.target.value})} rows={2}
           placeholder="오늘 하루 어땠나요? 기록해두면 나중에 돌아보기 좋아요."
           style={{...inp, width:"100%", boxSizing:"border-box", resize:"none", lineHeight:1.5, marginTop:10, fontFamily:"inherit"}} />
-      </Card>
-
-      {/* 식단 */}
-      <Card>
-        <Row><span style={lbl}>먹은 음식</span></Row>
-        <FoodSection foods={day.foods}
-          addFoods={(items)=>updateDay(k,{foods:[...day.foods, ...items], water:(day.water||0)+extraWater(items)})}
-          removeFood={(id)=>updateDay(k,{foods:day.foods.filter(f=>f.id!==id)})}
-          updateFood={(id,patch)=>updateDay(k,{foods:day.foods.map(f=>f.id===id?{...f,...patch}:f)})}
-          apiKey={apiKey} customFoods={customFoods}
-          {...favProps} />
       </Card>
 
       {/* 이번 주 리포트 (접이식) */}
@@ -926,6 +950,18 @@ function DayEditor({ dateKey, day, schedule, onClose, updateDay, favProps, apiKe
             updateFood={(id,patch)=>setDraft((d)=>({ ...d, foods:d.foods.map(f=>f.id===id?{...f,...patch}:f) }))}
             compact apiKey={apiKey} customFoods={customFoods} {...favProps} />
 
+          <SecLabel>수분</SecLabel>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", background:C.surface2, borderRadius:10, padding:"8px 10px" }}>
+            <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
+              <span style={{ fontSize:20, fontWeight:800, color:"#6BC5F0" }}>{((draft.water||0)*0.25).toFixed(2).replace(/\.?0+$/,"")}L</span>
+              <span style={{ fontSize:12, color:C.muted }}>{draft.water||0}잔</span>
+            </div>
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={()=>setDraft((d)=>({ ...d, water:Math.max(0,(d.water||0)-1) }))} style={stepBtn}>–</button>
+              <button onClick={()=>setDraft((d)=>({ ...d, water:(d.water||0)+1 }))} style={{...primary("#6BC5F0"), padding:"0 16px"}}>+1잔</button>
+            </div>
+          </div>
+
           <SecLabel>수면 · 컨디션</SecLabel>
           <SleepBlock value={draft.sleep} onChange={(v)=>setDraft({ ...draft, sleep:v })} />
           <div onClick={()=>setDraft({ ...draft, creatine:!draft.creatine })} style={{ display:"flex", alignItems:"center", gap:8,
@@ -1033,23 +1069,31 @@ function RestTimer() {
 function QuickWorkoutBlock({ partSets, mainLift, onChangePartSets, onChangeMainLift }) {
   const ps = partSets || {};
   const ml = mainLift || { name:"", w:"", r:"" };
+  const [editSet, setEditSet] = useState({}); // 직접입력 중인 임시 문자열
+  const clearEdit = (p) => setEditSet((s)=>{ const c={...s}; delete c[p]; return c; });
   const togglePart = (p) => {
     const next = { ...ps };
     if (next[p] != null) delete next[p];
     else next[p] = 3; // 기본 3세트로 시작
+    clearEdit(p);
     onChangePartSets(next);
   };
   const bump = (p, d) => {
-    const next = { ...ps, [p]: Math.max(1, (ps[p]||0) + d) };
-    onChangePartSets(next);
+    clearEdit(p);
+    onChangePartSets({ ...ps, [p]: Math.max(1, Math.min(99, (ps[p]||0) + d)) });
   };
+  const typeSet = (p, raw) => {
+    setEditSet((s)=>({ ...s, [p]: raw }));
+    if (raw !== "") onChangePartSets({ ...ps, [p]: Math.max(1, Math.min(99, Math.round(num(raw)))) });
+  };
+  const blurSet = (p) => { clearEdit(p); if (!(ps[p]>=1)) onChangePartSets({ ...ps, [p]: 1 }); };
   const setMl = (patch) => {
     const next = { ...ml, ...patch };
     onChangeMainLift(next.name || next.w || next.r ? next : null);
   };
   return (
     <div>
-      <div style={{ fontSize:11, color:C.muted, marginBottom:6 }}>부위 탭해서 선택 → 세트수 조절</div>
+      <div style={{ fontSize:11, color:C.muted, marginBottom:6 }}>부위 탭해서 선택 → 세트수는 직접 입력하거나 ± 로 조절</div>
       <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
         {PARTS.map((p)=>{
           const on = ps[p] != null;
@@ -1057,10 +1101,14 @@ function QuickWorkoutBlock({ partSets, mainLift, onChangePartSets, onChangeMainL
             <span key={p} style={{ display:"inline-flex", alignItems:"center", gap:0, borderRadius:999, overflow:"hidden",
               border:`1px solid ${on?TYPES.push.color:C.line}`, background:on?tint(TYPES.push.color,0.12):"transparent" }}>
               <button onClick={()=>togglePart(p)} style={{ background:"none", border:"none", cursor:"pointer", padding:"8px 10px",
-                fontSize:12, fontWeight:800, color:on?TYPES.push.color:C.muted }}>{p}{on?` ${ps[p]}세트`:""}</button>
+                fontSize:12, fontWeight:800, color:on?TYPES.push.color:C.muted }}>{p}</button>
               {on && <>
-                <button onClick={()=>bump(p,-1)} style={{ background:"none", border:"none", borderLeft:`1px solid ${tint(TYPES.push.color,0.35)}`, color:TYPES.push.color, fontWeight:800, padding:"8px 9px", cursor:"pointer", fontSize:12 }}>–</button>
-                <button onClick={()=>bump(p,1)} style={{ background:"none", border:"none", borderLeft:`1px solid ${tint(TYPES.push.color,0.35)}`, color:TYPES.push.color, fontWeight:800, padding:"8px 9px", cursor:"pointer", fontSize:12 }}>+</button>
+                <button onClick={()=>bump(p,-1)} style={{ background:"none", border:"none", borderLeft:`1px solid ${tint(TYPES.push.color,0.35)}`, color:TYPES.push.color, fontWeight:800, padding:"8px 10px", cursor:"pointer", fontSize:13 }}>–</button>
+                <input value={editSet[p] ?? String(ps[p])} onChange={(e)=>typeSet(p, e.target.value.replace(/[^0-9]/g,""))} onFocus={(e)=>e.target.select()} onBlur={()=>blurSet(p)}
+                  inputMode="numeric" style={{ width:26, textAlign:"center", background:"none", border:"none", borderLeft:`1px solid ${tint(TYPES.push.color,0.35)}`,
+                  color:TYPES.push.color, fontWeight:800, fontSize:13, padding:"8px 0", outline:"none" }} />
+                <span style={{ fontSize:11, color:TYPES.push.color, fontWeight:700, paddingRight:2 }}>세트</span>
+                <button onClick={()=>bump(p,1)} style={{ background:"none", border:"none", borderLeft:`1px solid ${tint(TYPES.push.color,0.35)}`, color:TYPES.push.color, fontWeight:800, padding:"8px 10px", cursor:"pointer", fontSize:13 }}>+</button>
               </>}
             </span>
           );
@@ -1167,7 +1215,7 @@ function SleepBlock({ value, onChange }) {
 }
 
 // ================= 음식 (검색 · 내 음식 · 외식추천) =================
-function Foods({ addFoodsToday, apiKey, customFoods, mutate }) {
+function Foods({ addFoodsToday, apiKey, customFoods, mutate, schedule }) {
   const [mode, setMode] = useState("search");
   return (
     <div style={{ padding:"22px 18px 8px" }}>
@@ -1185,18 +1233,48 @@ function Foods({ addFoodsToday, apiKey, customFoods, mutate }) {
       </div>
 
       {mode==="search"
-        ? <FoodSearch addFoodsToday={addFoodsToday} customFoods={customFoods} mutate={mutate} />
+        ? <FoodSearch addFoodsToday={addFoodsToday} customFoods={customFoods} mutate={mutate} schedule={schedule} />
         : <Dining addFoodsToday={addFoodsToday} apiKey={apiKey} customFoods={customFoods} embedded />}
     </div>
   );
 }
 
-function FoodSearch({ addFoodsToday, customFoods, mutate }) {
+function FoodSearch({ addFoodsToday, customFoods, mutate, schedule }) {
   const [q, setQ] = useState("");
   const [cat, setCat] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
   const [added, setAdded] = useState({});
-  const [cf, setCf] = useState({ name:"", cat:"기타", protein:"", carbs:"", sugar:"", fat:"", kcal:"", liquidMl:"" });
+  const [quickSort, setQuickSort] = useState("recent"); // recent | frequent
+  const [quickAdded, setQuickAdded] = useState({});
+
+  // 지금까지 기록한 식단에서 최근·자주 먹은 음식 뽑기 (이름+영양 그대로 원탭 재등록용)
+  const quickFoods = React.useMemo(()=>{
+    const map = new Map(); // name -> { item, count, order }
+    const dates = Object.keys(schedule||{}).sort().reverse(); // 최근 날짜 우선
+    let order = 0;
+    for (const dk of dates) {
+      const foods = schedule[dk]?.foods || [];
+      for (let i=foods.length-1; i>=0; i--) {
+        const f = foods[i];
+        if (!f || !f.name) continue;
+        if (map.has(f.name)) { map.get(f.name).count++; }
+        else { map.set(f.name, { item:f, count:1, order:order++ }); } // order=최초 등장(=가장 최근) 순
+      }
+    }
+    return [...map.values()];
+  }, [schedule]);
+  const quickList = React.useMemo(()=>{
+    const arr = [...quickFoods];
+    if (quickSort==="frequent") arr.sort((a,b)=> b.count-a.count || a.order-b.order);
+    else arr.sort((a,b)=> a.order-b.order);
+    return arr.slice(0, 12);
+  }, [quickFoods, quickSort]);
+  const quickAdd = (item) => {
+    addFoodsToday([{ id:uid(), name:item.name, protein:num(item.protein), carbs:num(item.carbs), sugar:num(item.sugar), fat:num(item.fat), kcal:num(item.kcal), liquidMl:num(item.liquidMl)||0 }]);
+    setQuickAdded((a)=>({ ...a, [item.name]:true }));
+    setTimeout(()=>setQuickAdded((a)=>({ ...a, [item.name]:false })), 1200);
+  };
+  const [cf, setCf] = useState({ name:"", cat:"기타", protein:"", carbs:"", sugar:"", fat:"", kcal:"", liquidMl:"", fixedLiquid:false });
 
   const cats = allCategories(customFoods);
   const results = searchAllFoods(q, customFoods, cat);
@@ -1216,16 +1294,16 @@ function FoodSearch({ addFoodsToday, customFoods, mutate }) {
     const label = usingGram ? `${e.key} ${num(g)}g` : (Math.abs(mult-1)<0.001 ? e.key : `${e.key} ${Math.round(mult*100)/100}인분`);
     addFoodsToday([{ id:uid(), name: label,
       protein:r1(e.protein), carbs:r1(e.carbs), sugar:r1(e.sugar), fat:r1(e.fat), kcal:Math.round(e.kcal*mult),
-      liquidMl: e.liquidMl ? Math.round(e.liquidMl*mult) : 0 }]);
+      liquidMl: e.liquidMl ? (e.fixedLiquid ? e.liquidMl : Math.round(e.liquidMl*mult)) : 0 }]);
     setAdded((a)=>({ ...a, [e.key]:true }));
     setTimeout(()=>setAdded((a)=>({ ...a, [e.key]:false })), 1500);
   };
 
   const addCustomFood = () => {
     if (!cf.name.trim()) return;
-    const entry = makeCustomEntry({ name:cf.name.trim(), cat:cf.cat, protein:num(cf.protein), carbs:num(cf.carbs), sugar:num(cf.sugar), fat:num(cf.fat), kcal:num(cf.kcal), liquidMl:num(cf.liquidMl) });
+    const entry = makeCustomEntry({ name:cf.name.trim(), cat:cf.cat, protein:num(cf.protein), carbs:num(cf.carbs), sugar:num(cf.sugar), fat:num(cf.fat), kcal:num(cf.kcal), liquidMl:num(cf.liquidMl), fixedLiquid:cf.fixedLiquid });
     mutate((prev)=>({ ...prev, customFoods:[...prev.customFoods.filter(e=>e.key!==entry.key), entry] }));
-    setCf({ name:"", cat:"기타", protein:"", carbs:"", sugar:"", fat:"", kcal:"", liquidMl:"" });
+    setCf({ name:"", cat:"기타", protein:"", carbs:"", sugar:"", fat:"", kcal:"", liquidMl:"", fixedLiquid:false });
     setAddOpen(false);
   };
   const removeCustomFood = (key) => mutate((prev)=>({ ...prev, customFoods:prev.customFoods.filter(e=>e.key!==key) }));
@@ -1234,6 +1312,7 @@ function FoodSearch({ addFoodsToday, customFoods, mutate }) {
     const entry = { ...orig, ...patch, custom:true, cat: patch.cat||orig.cat,
       aliases: Array.from(new Set([patch.key||orig.key, ...(orig.aliases||[])])) };
     if (!(patch.liquidMl>0)) delete entry.liquidMl;
+    if (!(patch.liquidMl>0) || !patch.fixedLiquid) delete entry.fixedLiquid; else entry.fixedLiquid = true;
     mutate((prev)=>({ ...prev, customFoods:[...prev.customFoods.filter(e=>e.key!==orig.key && e.key!==entry.key), entry] }));
     setEditKey(null);
   };
@@ -1264,6 +1343,37 @@ function FoodSearch({ addFoodsToday, customFoods, mutate }) {
           <button key={c} onClick={()=>setCat(cat===c?null:c)} style={{...chip(cat===c, c==="내 음식"?TYPES.legs.color:TYPES.push.color), flexShrink:0}}>{c}</button>
         ))}
       </div>
+
+      {/* 빠른 추가 — 최근·자주 먹은 음식 */}
+      {quickList.length>0 && !q && !cat && (
+        <Card>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <span style={lbl}>빠른 추가</span>
+            <div style={{ display:"flex", gap:5 }}>
+              {[["recent","최근"],["frequent","자주"]].map(([k,label])=>(
+                <button key={k} onClick={()=>setQuickSort(k)} style={{...chip(quickSort===k, TYPES.push.color), padding:"5px 11px", fontSize:11.5}}>{label}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{ fontSize:10.5, color:C.muted, marginTop:6 }}>
+            {quickSort==="recent" ? "최근 먹은 순서대로. 탭하면 오늘 식단에 그대로 추가돼요." : "자주 먹은 순서대로. 탭 한 번이면 끝."}
+          </div>
+          <div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:10 }}>
+            {quickList.map((qf)=>{
+              const done = quickAdded[qf.item.name];
+              return (
+                <button key={qf.item.name} onClick={()=>quickAdd(qf.item)}
+                  style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 12px", borderRadius:999, cursor:"pointer",
+                    border:`1px solid ${done?TYPES.legs.color:C.line}`, background: done?tint(TYPES.legs.color,0.14):C.surface2,
+                    color: done?TYPES.legs.color:C.text, fontSize:12.5, fontWeight:700, transition:"all .15s" }}>
+                  <span>{done ? "추가됨 ✓" : qf.item.name}</span>
+                  {!done && <span style={{ fontSize:10.5, color:C.muted, fontWeight:600 }}>{Math.round(num(qf.item.kcal))}kcal{quickSort==="frequent"&&qf.count>1?` · ${qf.count}회`:""}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+      )}
 
       {/* 내 음식 등록 */}
       <Card>
@@ -1312,6 +1422,19 @@ function FoodSearch({ addFoodsToday, customFoods, mutate }) {
             <div style={{ fontSize:10.5, color:C.muted, marginTop:6, lineHeight:1.5 }}>
               단백질 음료·주스 등 마시는 거면 ml를 넣어주세요. 추가할 때 물 트래커에 자동으로 더해져요. (음식이면 비워두세요.)
             </div>
+            {num(cf.liquidMl)>0 && (
+              <div onClick={()=>setCf({...cf, fixedLiquid:!cf.fixedLiquid})}
+                style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginTop:8, padding:"10px 12px", borderRadius:10, cursor:"pointer",
+                  background: cf.fixedLiquid?tint("#6BC5F0",0.13):C.surface2, border:`1.5px solid ${cf.fixedLiquid?"#6BC5F0":C.line}` }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:12.5, fontWeight:800, color: cf.fixedLiquid?"#6BC5F0":C.text }}>💧 수분 고정</div>
+                  <div style={{ fontSize:10.5, color:C.muted, marginTop:2, lineHeight:1.45 }}>보충제처럼 양(인분)이 늘어도 물은 그대로일 때. 켜면 몇 인분을 먹든 {num(cf.liquidMl)}ml만 반영돼요.</div>
+                </div>
+                <div style={{ width:40, height:23, borderRadius:99, flexShrink:0, background: cf.fixedLiquid?"#6BC5F0":C.line, position:"relative", transition:"background .2s" }}>
+                  <div style={{ width:19, height:19, borderRadius:"50%", background:"#fff", position:"absolute", top:2, left: cf.fixedLiquid?18:2, transition:"left .2s" }} />
+                </div>
+              </div>
+            )}
 
             <button onClick={addCustomFood} disabled={!cf.name.trim()}
               style={{...primary(TYPES.legs.color), width:"100%", marginTop:12, opacity:cf.name.trim()?1:0.45}}>
@@ -1368,7 +1491,7 @@ function FoodSearch({ addFoodsToday, customFoods, mutate }) {
           </div>
 
           {e.liquidMl>0 && (
-            <div style={{ fontSize:11, color:"#6BC5F0", fontWeight:700, marginTop:8 }}>💧 수분 {e.liquidMl}ml · 추가 시 물 {Math.round(e.liquidMl/250*10)/10}잔 자동 반영</div>
+            <div style={{ fontSize:11, color:"#6BC5F0", fontWeight:700, marginTop:8 }}>💧 수분 {e.liquidMl}ml{e.fixedLiquid?" 고정":""} · {e.fixedLiquid?`양과 무관하게 물 ${Math.round(e.liquidMl/250*10)/10}잔 반영`:`추가 시 물 ${Math.round(e.liquidMl/250*10)/10}잔 자동 반영`}</div>
           )}
 
           {/* 수량 선택 (인분 칩) */}
@@ -1410,7 +1533,7 @@ function DBFoodEdit({ entry, onSave, onCancel }) {
   const [v, setV] = useState({
     key: entry.key, protein:String(num(entry.protein)), carbs:String(num(entry.carbs)),
     sugar:String(num(entry.sugar)), fat:String(num(entry.fat)), kcal:String(num(entry.kcal)),
-    liquidMl:String(num(entry.liquidMl)),
+    liquidMl:String(num(entry.liquidMl)), fixedLiquid: !!entry.fixedLiquid,
   });
   const F = (label, key, wide) => (
     <div style={{ flex:wide?"1 1 100%":1, minWidth:60 }}>
@@ -1429,12 +1552,25 @@ function DBFoodEdit({ entry, onSave, onCancel }) {
       <div style={{ display:"flex", gap:6, marginTop:7 }}>
         {F("지방 g","fat")}{F("칼로리","kcal")}{F("수분 ml","liquidMl")}
       </div>
+      {num(v.liquidMl)>0 && (
+        <div onClick={()=>setV({...v, fixedLiquid:!v.fixedLiquid})}
+          style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginTop:8, padding:"9px 11px", borderRadius:9, cursor:"pointer",
+            background: v.fixedLiquid?tint("#6BC5F0",0.13):C.surface, border:`1.5px solid ${v.fixedLiquid?"#6BC5F0":C.line}` }}>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:12, fontWeight:800, color: v.fixedLiquid?"#6BC5F0":C.text }}>💧 수분 고정</div>
+            <div style={{ fontSize:10, color:C.muted, marginTop:2, lineHeight:1.45 }}>보충제처럼 인분이 늘어도 물은 {num(v.liquidMl)}ml 그대로 반영</div>
+          </div>
+          <div style={{ width:38, height:22, borderRadius:99, flexShrink:0, background: v.fixedLiquid?"#6BC5F0":C.line, position:"relative", transition:"background .2s" }}>
+            <div style={{ width:18, height:18, borderRadius:"50%", background:"#fff", position:"absolute", top:2, left: v.fixedLiquid?18:2, transition:"left .2s" }} />
+          </div>
+        </div>
+      )}
       <div style={{ fontSize:10.5, color:C.muted, marginTop:8, lineHeight:1.5 }}>
         수정하면 내 음식으로 저장돼서, 다음부터 검색·기록할 때 이 값이 쓰여요.
       </div>
       <div style={{ display:"flex", gap:8, marginTop:10 }}>
         <button onClick={onCancel} style={{...ghost, flex:1}}>취소</button>
-        <button onClick={()=>onSave({ key:v.key.trim()||entry.key, protein:num(v.protein), carbs:num(v.carbs), sugar:num(v.sugar), fat:num(v.fat), kcal:num(v.kcal), liquidMl:num(v.liquidMl) })}
+        <button onClick={()=>onSave({ key:v.key.trim()||entry.key, protein:num(v.protein), carbs:num(v.carbs), sugar:num(v.sugar), fat:num(v.fat), kcal:num(v.kcal), liquidMl:num(v.liquidMl), fixedLiquid:v.fixedLiquid })}
           style={{...primary(TYPES.legs.color), flex:2}}>저장</button>
       </div>
     </div>
@@ -1715,6 +1851,28 @@ function Body({ data, persist, mutate, target, latestWeight, tdee }) {
   const startW = sorted.length?sorted[0].weight:null;
   const goalPct = (goalW&&startW&&latestWeight&&goalW!==startW)? Math.max(0,Math.min(100, Math.round((latestWeight-startW)/(goalW-startW)*100))):null;
 
+  // 목표 도달 예상 (최근 42일 측정 추세 기반)
+  const goalETA = (()=>{
+    if (!goalW || !latestWeight || sorted.length<2) return null;
+    const remaining = goalW - latestWeight;
+    if (Math.abs(remaining) < 0.1) return { reached:true };
+    const lastDate = new Date(sorted[sorted.length-1].date+"T00:00:00");
+    const wStart = new Date(lastDate); wStart.setDate(wStart.getDate()-42);
+    let pts = sorted.filter(x=> new Date(x.date+"T00:00:00") >= wStart);
+    if (pts.length<2) pts = sorted.slice(-4);
+    const first = pts[0], last = pts[pts.length-1];
+    const days = (new Date(last.date+"T00:00:00") - new Date(first.date+"T00:00:00"))/86400000;
+    if (days < 3) return { tooSoon:true };
+    const ratePerWeek = (last.weight - first.weight)/days*7;
+    if (Math.abs(ratePerWeek) < 0.05) return { flat:true };
+    if (Math.sign(ratePerWeek) !== Math.sign(remaining)) return { diverging:true, ratePerWeek };
+    const weeks = remaining / ratePerWeek;
+    const eta = new Date(); eta.setDate(eta.getDate()+Math.round(weeks*7));
+    return { weeks, eta, ratePerWeek };
+  })();
+  const fmtRate = (r)=> `주 ${r>=0?"+":""}${Math.round(r*100)/100}kg`;
+
+  const markBackedUp = () => mutate((prev)=>({ ...prev, lastBackupAt: Date.now() }));
   const exportData = () => {
     // 모바일 웹뷰에서는 파일 다운로드가 막히는 경우가 많아서, 화면에 텍스트를 띄워 복사하는 방식을 기본으로 씀
     setExportOpen(true);
@@ -1726,13 +1884,18 @@ function Body({ data, persist, mutate, target, latestWeight, tdee }) {
   };
   const copyBackup = async () => {
     const text = JSON.stringify(data, null, 2);
-    try { await navigator.clipboard.writeText(text); setCopyMsg("복사됐어요! 메모장·메시지 등에 붙여넣어 보관하세요."); return; } catch(e){}
+    const done = () => { setCopyMsg("복사됐어요! 메모장·메시지 등에 붙여넣어 보관하세요."); markBackedUp(); };
+    try { await navigator.clipboard.writeText(text); done(); return; } catch(e){}
     try {
       const ta = exportTaRef.current;
-      if (ta) { ta.focus(); ta.select(); const ok = document.execCommand("copy"); setCopyMsg(ok?"복사됐어요! 메모장·메시지 등에 붙여넣어 보관하세요.":"자동 복사가 안 돼요. 아래 텍스트를 길게 눌러 직접 선택 후 복사해주세요."); return; }
+      if (ta) { ta.focus(); ta.select(); const ok = document.execCommand("copy"); if(ok){ done(); } else { setCopyMsg("자동 복사가 안 돼요. 아래 텍스트를 길게 눌러 직접 선택 후 복사해주세요."); } return; }
     } catch(e){}
     setCopyMsg("자동 복사가 안 돼요. 아래 텍스트를 길게 눌러 직접 선택 후 복사해주세요.");
   };
+  // 마지막 백업 경과일 + 백업할 만한 데이터가 쌓였는지
+  const daysSinceBackup = data.lastBackupAt ? Math.floor((Date.now()-data.lastBackupAt)/86400000) : null;
+  const hasMeaningfulData = Object.keys(data.schedule).length >= 3 || data.measurements.length >= 2;
+  const backupStale = hasMeaningfulData && (daysSinceBackup===null || daysSinceBackup>=7);
   const doImport = () => { try { const parsed=normalize(JSON.parse(importText)); persist(parsed); setImportText(""); setImportMsg("가져오기 완료!"); }
     catch(e){ setImportMsg("JSON 형식이 올바르지 않아요."); } };
 
@@ -1801,6 +1964,25 @@ function Body({ data, persist, mutate, target, latestWeight, tdee }) {
           <div style={{ height:8, background:C.surface2, borderRadius:99, overflow:"hidden" }}>
             <div style={{ width:`${goalPct}%`, height:"100%", background:TYPES.legs.color, borderRadius:99 }} /></div>
           <div style={{ fontSize:11, color:C.muted, marginTop:6, textAlign:"right" }}>목표까지 {(goalW-latestWeight).toFixed(1)}kg</div>
+          {goalETA && (
+            <div style={{ marginTop:10, padding:"11px 12px", borderRadius:10, background:C.surface2,
+              border:`1px solid ${goalETA.eta?tint(TYPES.legs.color,0.4):goalETA.diverging?tint(C.danger,0.4):C.line}` }}>
+              {goalETA.reached ? (
+                <span style={{ fontSize:12.5, fontWeight:800, color:TYPES.legs.color }}>🎉 목표 도달! 새 목표를 세워볼까요?</span>
+              ) : goalETA.eta ? (
+                <div>
+                  <div style={{ fontSize:13, fontWeight:800, color:TYPES.legs.color }}>🎯 약 {Math.max(1,Math.round(goalETA.weeks))}주 후 도달 예상</div>
+                  <div style={{ fontSize:11, color:C.muted, marginTop:3 }}>{goalETA.eta.getFullYear()}.{goalETA.eta.getMonth()+1}.{goalETA.eta.getDate()} 즈음 · 최근 페이스 {fmtRate(goalETA.ratePerWeek)}</div>
+                </div>
+              ) : goalETA.diverging ? (
+                <span style={{ fontSize:12, fontWeight:700, color:C.danger }}>⚠️ 최근 추세({fmtRate(goalETA.ratePerWeek)})로는 목표에서 멀어지고 있어요</span>
+              ) : goalETA.flat ? (
+                <span style={{ fontSize:12, fontWeight:700, color:C.muted }}>최근 체중 변화가 거의 없어 도달 시점을 예측하기 어려워요</span>
+              ) : (
+                <span style={{ fontSize:12, fontWeight:700, color:C.muted }}>추세를 계산하려면 체중 기록이 조금 더 필요해요</span>
+              )}
+            </div>
+          )}
         </>)}
       </Card>
 
@@ -1844,8 +2026,20 @@ function Body({ data, persist, mutate, target, latestWeight, tdee }) {
 
       {/* 백업 */}
       <Card>
-        <Row><span style={lbl}>데이터 백업</span></Row>
-        <button onClick={exportData} style={{...primary(C.text), width:"100%", marginTop:10, color:"#141519"}}>백업 텍스트 만들기</button>
+        <Row><span style={lbl}>데이터 백업</span>
+          <span style={{ fontSize:11.5, color: backupStale?C.amber:C.muted, fontWeight:backupStale?800:600 }}>
+            {daysSinceBackup===null ? "백업 기록 없음" : daysSinceBackup===0 ? "오늘 백업함 ✓" : `${daysSinceBackup}일 전 백업`}
+          </span>
+        </Row>
+        {backupStale && (
+          <div style={{ marginTop:10, padding:"11px 12px", background:tint(C.amber,0.1), border:`1px solid ${tint(C.amber,0.4)}`, borderRadius:10, display:"flex", gap:9, alignItems:"flex-start" }}>
+            <span style={{ fontSize:15, lineHeight:1.3 }}>⚠️</span>
+            <span style={{ fontSize:11.5, color:C.amber, fontWeight:700, lineHeight:1.55 }}>
+              {daysSinceBackup===null ? "아직 백업한 적이 없어요. 기기·브라우저 데이터가 지워지면 기록이 사라질 수 있으니 지금 한 번 백업해두세요." : "백업한 지 오래됐어요. 최근 기록을 잃지 않으려면 다시 백업해두는 게 좋아요."}
+            </span>
+          </div>
+        )}
+        <button onClick={exportData} style={{...primary(backupStale?C.amber:C.text), width:"100%", marginTop:10, color:"#141519"}}>백업 텍스트 만들기</button>
         {exportOpen && (
           <div style={{ marginTop:10 }}>
             <div style={{ fontSize:11.5, color:C.muted, marginBottom:6 }}>
@@ -2125,6 +2319,69 @@ function Stats({ data, target, tdee, weight }) {
   const avgWater = (avg(perDay, d=>d.water)).toFixed(1);
   const workoutCount = perDay.filter(d=>d.worked).length;
 
+  // 직전 동일 기간 요약 — "지난주/지난달 대비" 비교용
+  const summarize = (dayKeys) => {
+    const pd = dayKeys.map((dk)=>{
+      const e = data.schedule[dk] || {};
+      const foods = e.foods || [];
+      const kcalIn = foods.reduce((s,f)=>s+num(f.kcal),0);
+      const kcalOut = e.cardio ? num(e.cardio.kcal) : 0;
+      return {
+        protein: foods.reduce((s,f)=>s+num(f.protein),0),
+        net: tdee!=null ? kcalIn - tdee - kcalOut : null,
+        studyMin: (data.study||[]).filter((s)=>s.date===dk).reduce((a,s)=>a+s.minutes,0),
+        sleep: num(e.sleep?.hours), water: num(e.water),
+        hasFood: foods.length>0, worked: !!(e.type && e.type!=="rest"),
+      };
+    });
+    const fd = pd.filter(d=>d.hasFood);
+    const sd = pd.filter(d=>d.sleep>0);
+    const nd = pd.filter(d=>d.net!=null && d.hasFood);
+    const a = (arr,sel)=> arr.length ? arr.reduce((s,x)=>s+sel(x),0)/arr.length : 0;
+    return {
+      avgProtein: Math.round(a(fd,d=>d.protein)),
+      avgNet: nd.length ? Math.round(a(nd,d=>d.net)) : null,
+      avgSleep: sd.length ? a(sd,d=>d.sleep) : null,
+      avgWater: a(pd,d=>d.water),
+      totalStudy: pd.reduce((s,d)=>s+d.studyMin,0),
+      workoutCount: pd.filter(d=>d.worked).length,
+      hasData: fd.length>0 || pd.some(d=>d.worked||d.sleep>0||d.studyMin>0),
+    };
+  };
+  const prevDays = prevRangeDays(range);
+  const prev = summarize(prevDays);
+
+  // 체중 변화: 각 기간 끝 시점 기준 가장 최근 측정값 비교
+  const measuresAsc = [...data.measurements].sort((a,b)=>a.date.localeCompare(b.date));
+  const weightAt = (dateKey) => { let w=null; for(const x of measuresAsc){ if(x.date<=dateKey) w=x.weight; else break; } return w; };
+  const curW = weightAt(days[days.length-1]);
+  const prevW = weightAt(prevDays[prevDays.length-1]);
+  const weightDelta = (curW!=null && prevW!=null) ? Math.round((curW-prevW)*10)/10 : null;
+
+  // 비교 항목 (현재값, 증감, 좋아지는 방향)
+  const cmpItems = [
+    { icon:"🥩", label:"평균 단백질", cur:`${avgProtein}g`, delta: avgProtein - prev.avgProtein, unit:"g", better:"up" },
+    { icon:"💪", label:"운동 횟수", cur:`${workoutCount}회`, delta: workoutCount - prev.workoutCount, unit:"회", better:"up" },
+    (avgNet!=null && prev.avgNet!=null) ? { icon:"🔥", label:"칼로리 밸런스", cur:`${avgNet>=0?"+":""}${avgNet}`, delta: avgNet - prev.avgNet, unit:"", better:"near", curV:avgNet, prevV:prev.avgNet } : null,
+    (avgSleep!=null && prev.avgSleep!=null) ? { icon:"😴", label:"평균 수면", cur:`${avgSleep}h`, delta: Math.round((num(avgSleep)-prev.avgSleep)*10)/10, unit:"h", better:"up" } : null,
+    { icon:"💧", label:"평균 물", cur:`${avgWater}잔`, delta: Math.round((num(avgWater)-prev.avgWater)*10)/10, unit:"잔", better:"up" },
+    (totalStudy>0 || prev.totalStudy>0) ? { icon:"📚", label:"총 공부", cur:fmtMin(totalStudy), delta: totalStudy - prev.totalStudy, unit:"분", better:"up", isTime:true } : null,
+    weightDelta!=null ? { icon:"⚖️", label:"체중", cur:`${curW}kg`, delta: weightDelta, unit:"kg", better:"neutral" } : null,
+  ].filter(Boolean);
+  const deltaView = (it) => {
+    const d = it.delta;
+    if (d===0 || d==null) return { text:"변화 없음", color:C.muted };
+    const up = d>0;
+    let good = null;
+    if (it.better==="up") good = up;
+    else if (it.better==="down") good = !up;
+    else if (it.better==="near") good = Math.abs(it.curV-surplus) < Math.abs(it.prevV-surplus);
+    // neutral(체중 등)은 좋고 나쁨 판정 없이 회색 화살표만
+    const color = good===null ? C.text : good ? TYPES.legs.color : C.danger;
+    const mag = it.isTime ? fmtMin(Math.abs(d)) : `${Math.abs(d)}${it.unit}`;
+    return { text:`${up?"▲":"▼"} ${mag}`, color };
+  };
+
   // 부위별 볼륨 (기간 내 총 세트수) — 퀵 기록(partSets) 기준
   const volumeByPart = {};
   perDay.forEach((d)=>{ for (const [p,s] of Object.entries(d.partSets)) volumeByPart[p]=(volumeByPart[p]||0)+num(s); });
@@ -2132,6 +2389,31 @@ function Stats({ data, target, tdee, weight }) {
   const maxVol = Math.max(1, ...volumeEntries.map(([,v])=>v));
   const hasAnyVolume = volumeEntries.some(([,v])=>v>0);
   const missedParts = hasAnyVolume ? volumeEntries.filter(([,v])=>v===0).map(([p])=>p) : [];
+
+  // 밀기·당기기·하체 밸런스
+  const GROUPS = [
+    { key:"밀기", color:TYPES.push.color, parts:["가슴","가슴안쪽","어깨","삼두"] },
+    { key:"당기기", color:TYPES.pull.color, parts:["등","후면어깨","이두"] },
+    { key:"하체", color:TYPES.legs.color, parts:["하체","둔근"] },
+    { key:"코어", color:C.amber, parts:["복근"] },
+  ];
+  const groupVol = GROUPS.map(g=>({ ...g, sets: g.parts.reduce((s,p)=>s+(volumeByPart[p]||0),0) }));
+  const maxGroup = Math.max(1, ...groupVol.map(g=>g.sets));
+  const pushV = groupVol[0].sets, pullV = groupVol[1].sets;
+  const balanceWarn = (pushV>0 && pullV>0 && (pushV/pullV>1.5 || pullV/pushV>1.5))
+    ? (pushV>pullV ? `밀기가 당기기보다 많아요 (${pushV}:${pullV}). 자세·어깨 균형을 위해 당기기(등·이두)를 늘려보세요.`
+                   : `당기기가 밀기보다 많아요 (${pushV}:${pullV}). 밀기(가슴·어깨·삼두)를 조금 더 채워보세요.`)
+    : null;
+
+  // 연속 기록 (현재 + 역대 최고)
+  const hasLog = (e)=> !!(e && ((e.foods&&e.foods.length)||(e.type&&e.type!=="rest")||e.sleep||e.water||(e.partSets&&Object.keys(e.partSets).length)||e.mainLift||e.creatine||e.mood||e.diary));
+  const streaks = [
+    { key:"기록", icon:"📝", color:TYPES.push.color, ...streakInfo(data.schedule, (kk)=>hasLog(data.schedule[kk])) },
+    { key:"단백질 목표", icon:"🥩", color:TYPES.legs.color, ...(target ? streakInfo(data.schedule, (kk)=>(data.schedule[kk]?.foods||[]).reduce((s,f)=>s+num(f.protein),0) >= target.low) : {current:0,best:0}) },
+    { key:"운동", icon:"💪", color:TYPES.pull.color, ...streakInfo(data.schedule, (kk)=>{ const t2=data.schedule[kk]?.type; return t2 && t2!=="rest"; }) },
+    { key:"크레아틴", icon:"💊", color:"#C9A6FF", ...streakInfo(data.schedule, (kk)=>!!data.schedule[kk]?.creatine) },
+  ];
+  const anyStreak = streaks.some(s=>s.best>0);
 
   // 상태 판정: good(초록)/warn(노랑)/bad(빨강)/none(회색)
   const S = { good:TYPES.legs.color, warn:C.amber, bad:C.danger, none:C.muted };
@@ -2270,6 +2552,52 @@ function Stats({ data, target, tdee, weight }) {
         </div>
       </GlassCard>
 
+      {/* 연속 기록 (스트릭) */}
+      {anyStreak && (
+        <Card>
+          <Row><span style={lbl}>연속 기록</span><span style={{ fontSize:11, color:C.muted }}>현재 · 최고</span></Row>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:12 }}>
+            {streaks.map((s)=>{
+              const active = s.current>0;
+              return (
+                <div key={s.key} style={{ background:C.surface2, borderRadius:11, padding:"11px 12px",
+                  border:`1px solid ${active?tint(s.color,0.4):C.line}` }}>
+                  <div style={{ fontSize:11, color:C.muted, fontWeight:600 }}>{s.icon} {s.key}</div>
+                  <div style={{ display:"flex", alignItems:"baseline", gap:5, marginTop:4 }}>
+                    <span style={{ fontSize:20, fontWeight:800, color: active?s.color:C.muted }}>{s.current}</span>
+                    <span style={{ fontSize:11, color:C.muted }}>일{active&&s.current>=2?" 🔥":""}</span>
+                  </div>
+                  <div style={{ fontSize:10.5, color:C.muted, marginTop:2 }}>최고 {s.best}일</div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      {/* 지난 기간 대비 */}
+      <Card>
+        <Row><span style={lbl}>{compareLabel(range)}</span></Row>
+        {!prev.hasData ? (
+          <div style={{ color:C.muted, fontSize:12.5, marginTop:10, lineHeight:1.6 }}>
+            비교할 이전 {range==="day"?"날":"기간"} 기록이 아직 없어요. 꾸준히 기록하면 {compareLabel(range)} 변화가 여기 나타나요.
+          </div>
+        ) : (
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:12 }}>
+            {cmpItems.map((it)=>{
+              const dv = deltaView(it);
+              return (
+                <div key={it.label} style={{ background:C.surface2, borderRadius:11, padding:"11px 12px" }}>
+                  <div style={{ fontSize:11, color:C.muted, fontWeight:600 }}>{it.icon} {it.label}</div>
+                  <div style={{ fontSize:17, fontWeight:800, marginTop:4 }}>{it.cur}</div>
+                  <div style={{ fontSize:11.5, fontWeight:800, color:dv.color, marginTop:3 }}>{dv.text}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
       {/* 부위별 볼륨 */}
       <Card>
         <Row><span style={lbl}>부위별 볼륨 · {rangeLabel(range)}</span>
@@ -2281,6 +2609,23 @@ function Stats({ data, target, tdee, weight }) {
           </div>
         ) : (
           <>
+            <div style={{ display:"flex", gap:6, marginTop:12 }}>
+              {groupVol.filter(g=>g.sets>0).map((g)=>(
+                <div key={g.key} style={{ flex:1, minWidth:0, background:C.surface2, borderRadius:10, padding:"9px 8px", textAlign:"center" }}>
+                  <div style={{ fontSize:10.5, color:C.muted, fontWeight:600 }}>{g.key}</div>
+                  <div style={{ fontSize:17, fontWeight:800, color:g.color, marginTop:2 }}>{g.sets}</div>
+                  <div style={{ height:4, background:C.line, borderRadius:99, marginTop:6, overflow:"hidden" }}>
+                    <div style={{ width:`${Math.round(g.sets/maxGroup*100)}%`, height:"100%", background:g.color, borderRadius:99 }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            {balanceWarn && (
+              <div style={{ marginTop:9, padding:"9px 12px", background:tint(C.amber,0.1), border:`1px solid ${tint(C.amber,0.35)}`, borderRadius:10 }}>
+                <span style={{ fontSize:11.5, color:C.amber, fontWeight:700 }}>⚖️ {balanceWarn}</span>
+              </div>
+            )}
+            <div style={{ height:1, background:C.line, margin:"14px 0 2px" }} />
             <div style={{ marginTop:12 }}>
               {volumeEntries.filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).map(([p,v])=>(
                 <div key={p} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
