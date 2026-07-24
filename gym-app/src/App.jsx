@@ -78,6 +78,15 @@ const dowOf = (dk) => { const [y,m,d]=dk.split("-").map(Number); return new Date
 const last7 = () => [...Array(7)].map((_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); return keyOf(d.getFullYear(),d.getMonth(),d.getDate()); });
 // 오늘 기준 최근 n일의 날짜키 배열 (과거→오늘 순)
 const lastNDays = (n) => [...Array(n)].map((_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(n-1-i)); return keyOf(d.getFullYear(),d.getMonth(),d.getDate()); });
+// 운동한 날 판정: 운동 타입(밀기/당기기 등)을 안 골라도, 부위 세트·종목·대표운동 중 하나라도 있으면 운동한 날로 본다
+const didWorkout = (e) => {
+  if (!e) return false;
+  if (e.type && e.type !== "rest") return true;
+  if (e.partSets && Object.keys(e.partSets).some((p)=>num(e.partSets[p])>0)) return true;
+  if (e.lifts && e.lifts.some((l)=>(l.sets||[]).length>0)) return true;
+  if (e.mainLift && e.mainLift.name) return true;
+  return false;
+};
 // 조건을 만족하는 날의 연속 기록: 현재 진행 중 연속(current)과 역대 최고(best)
 const streakInfo = (schedule, checkFn) => {
   let current = 0;
@@ -104,11 +113,11 @@ const prevRangeDays = (range) => {
   return [...Array(n)].map((_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(2*n-1-i)); return keyOf(d.getFullYear(),d.getMonth(),d.getDate()); });
 };
 const compareLabel = (range) => range==="day" ? "어제 대비" : range==="week" ? "지난주 대비" : "지난달 대비";
-const emptyDay = () => ({ type:null, parts:[], cardio:null, foods:[], lifts:[], note:"", sleep:null, water:0, partSets:{}, mainLift:null, creatine:false, mood:null, diary:"", habitLog:{} });
+const emptyDay = () => ({ type:null, parts:[], cardio:null, foods:[], lifts:[], note:"", sleep:null, water:0, partSets:{}, mainLift:null, creatine:false, mood:null, diary:"", habitLog:{}, steps:0 });
 
 const normalize = (d) => ({
   schedule: d.schedule || {},
-  profile: { height:"", age:"", sex:"", activity:1.375, surplus:0, goalWeight:"", goalFat:"", apiKey:"", ...(d.profile||{}) },
+  profile: { height:"", age:"", sex:"", activity:1.375, surplus:0, goalWeight:"", goalFat:"", apiKey:"", macroGoal:"lean", ...(d.profile||{}) },
   measurements: d.measurements || [],
   study: d.study || [],
   scores: d.scores || [],
@@ -120,6 +129,7 @@ const normalize = (d) => ({
   habits: d.habits || [],
   updatedAt: d.updatedAt || 0,
   lastBackupAt: d.lastBackupAt || 0,
+  plans: d.plans || {},   // { "YYYY-MM-DD": [{id,title,start,end,alarm,note}] }
 });
 
 const NUTRI_PROMPT = `아래는 사용자가 먹은 음식/보충제(프로틴 쉐이크 등) 설명이야.
@@ -177,6 +187,25 @@ async function callClaudeAPI(apiKey, prompt) {
 }
 
 // 목표 칼로리 기준 탄수 적정량 + 당류 상한(자유당 10% 에너지)
+// 걸음수 → 소모 칼로리. 체중 1kg·1걸음당 약 0.00057kcal (70kg 기준 1만보 ≈ 400kcal)
+const stepsToKcal = (steps, weight) => {
+  const st = num(steps), w = num(weight) || 70;
+  if (st <= 0) return 0;
+  return Math.round(st * w * 0.00057);
+};
+// 하루 총 소모(유산소 + 걸음수)
+const burnedKcal = (entry, weight) => {
+  if (!entry) return 0;
+  return (entry.cardio ? num(entry.cardio.kcal) : 0) + stepsToKcal(entry.steps, weight);
+};
+
+// 목표별 권장 탄단지 비율 (칼로리 기준 %)
+const MACRO_GOALS = {
+  lean:  { key:"lean",  label:"린매스업", desc:"근육 위주로 천천히", carb:45, protein:30, fat:25, color:"#B6E34B" },
+  bulk:  { key:"bulk",  label:"벌크업",   desc:"체중 증량 우선",     carb:50, protein:25, fat:25, color:"#FF8C42" },
+  cut:   { key:"cut",   label:"다이어트", desc:"체지방 감량",        carb:35, protein:40, fat:25, color:"#35C4D8" },
+};
+
 const macroTargets = (tdee, surplus, weight, proteinG) => {
   if (!tdee || !weight) return null;
   const cal = tdee + num(surplus);
@@ -184,6 +213,80 @@ const macroTargets = (tdee, surplus, weight, proteinG) => {
   const fCal = cal * 0.25;
   const cCal = Math.max(0, cal - pCal - fCal);
   return { carb: Math.round(cCal / 4), sugar: Math.round(cal * 0.10 / 4), fat: Math.round(fCal / 9) };
+};
+
+// ================= 계획 → 휴대폰 캘린더 연동 =================
+// 웹앱은 스스로 예약 알림을 띄울 수 없다(Notification Triggers API는 개발 중단, Push는 서버 필요).
+// 대신 휴대폰의 기본 캘린더에 일정을 넘겨서 OS가 알람을 울리게 한다.
+const ALARM_OPTIONS = [
+  { v:0,  label:"정시" }, { v:5, label:"5분 전" }, { v:10, label:"10분 전" },
+  { v:30, label:"30분 전" }, { v:60, label:"1시간 전" }, { v:-1, label:"알림 없음" },
+];
+// "HH:MM" + 날짜키 → Date
+const planDate = (dateKey, hhmm) => {
+  const [y,m,d] = dateKey.split("-").map(Number);
+  const [hh,mi] = (hhmm||"09:00").split(":").map(Number);
+  return new Date(y, m-1, d, hh||0, mi||0, 0, 0);
+};
+const pad2 = (n)=>String(n).padStart(2,"0");
+// 로컬시간 기준 iCal/구글 형식: YYYYMMDDTHHMMSS
+const fmtLocalStamp = (dt) =>
+  `${dt.getFullYear()}${pad2(dt.getMonth()+1)}${pad2(dt.getDate())}T${pad2(dt.getHours())}${pad2(dt.getMinutes())}00`;
+const fmtUtcStamp = (dt) =>
+  `${dt.getUTCFullYear()}${pad2(dt.getUTCMonth()+1)}${pad2(dt.getUTCDate())}T${pad2(dt.getUTCHours())}${pad2(dt.getUTCMinutes())}${pad2(dt.getUTCSeconds())}Z`;
+const planEndDate = (dateKey, p) => {
+  const st = planDate(dateKey, p.start);
+  if (p.end && p.end > p.start) return planDate(dateKey, p.end);
+  return new Date(st.getTime() + 60*60*1000); // 종료 없으면 1시간
+};
+const icsEscape = (t)=> String(t||"").replace(/\\/g,"\\\\").replace(/;/g,"\\;").replace(/,/g,"\\,").replace(/\n/g,"\\n");
+
+// 여러 일정을 하나의 .ics 파일 텍스트로. VALARM으로 기기 알림 시각을 지정한다.
+const buildICS = (items) => {
+  const lines = ["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//린메스업 트래커//KO","CALSCALE:GREGORIAN","METHOD:PUBLISH"];
+  const stamp = fmtUtcStamp(new Date());
+  for (const { dateKey, plan } of items) {
+    const st = planDate(dateKey, plan.start);
+    const en = planEndDate(dateKey, plan);
+    lines.push("BEGIN:VEVENT");
+    lines.push(`UID:${plan.id}@linmassup`);
+    lines.push(`DTSTAMP:${stamp}`);
+    lines.push(`DTSTART:${fmtLocalStamp(st)}`);
+    lines.push(`DTEND:${fmtLocalStamp(en)}`);
+    lines.push(`SUMMARY:${icsEscape(plan.title)}`);
+    if (plan.note) lines.push(`DESCRIPTION:${icsEscape(plan.note)}`);
+    const al = num(plan.alarm);
+    if (plan.alarm != null && al >= 0) {
+      lines.push("BEGIN:VALARM","ACTION:DISPLAY",`DESCRIPTION:${icsEscape(plan.title)}`,
+        `TRIGGER:-PT${al}M`,"END:VALARM");
+    }
+    lines.push("END:VEVENT");
+  }
+  lines.push("END:VCALENDAR");
+  return lines.join("\r\n");
+};
+// 구글 캘린더 미리채움 링크 (탭 한 번으로 저장 → 구글이 알림 담당)
+const googleCalUrl = (dateKey, plan) => {
+  const st = planDate(dateKey, plan.start), en = planEndDate(dateKey, plan);
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Seoul";
+  // dates의 구분자 "/"는 인코딩하지 않아야 구글이 확실히 인식한다
+  const parts = [
+    "action=TEMPLATE",
+    `text=${encodeURIComponent(plan.title || "계획")}`,
+    `dates=${fmtLocalStamp(st)}/${fmtLocalStamp(en)}`,
+    `ctz=${tz}`,
+  ];
+  if (plan.note) parts.push(`details=${encodeURIComponent(plan.note)}`);
+  return `https://calendar.google.com/calendar/render?${parts.join("&")}`;
+};
+// .ics 내려받기 / 공유
+const downloadICS = (items, filename) => {
+  const text = buildICS(items);
+  const blob = new Blob([text], { type:"text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename || "plan.ics"; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
 };
 
 // ================= 메인 =================
@@ -307,7 +410,7 @@ export default function App() {
     <div style={{ background:`linear-gradient(180deg, #17181e 0%, ${C.bg} 220px)`, color:C.text, minHeight:"100vh", maxWidth:460, margin:"0 auto",
       fontFamily:"system-ui, -apple-system, sans-serif", paddingBottom:84, paddingTop:"env(safe-area-inset-top)" }}>
       <div key={tab} className="tab-content">
-        {tab==="today" && <Today data={data} updateDay={updateDay} addFoodsToday={addFoodsToday} target={proteinTarget()} tdee={computeTDEE(data.profile, latestWeight())} weight={latestWeight()} favProps={favProps} apiKey={data.profile.apiKey} customFoods={data.customFoods} />}
+        {tab==="today" && <Today data={data} updateDay={updateDay} addFoodsToday={addFoodsToday} target={proteinTarget()} tdee={computeTDEE(data.profile, latestWeight())} weight={latestWeight()} favProps={favProps} apiKey={data.profile.apiKey} customFoods={data.customFoods} mutate={mutate} />}
         {tab==="calendar" && <Calendar data={data} persist={persist} updateDay={updateDay} favProps={favProps} apiKey={data.profile.apiKey} customFoods={data.customFoods} routines={data.routines} mutate={mutate} />}
         {tab==="foods" && <Foods addFoodsToday={addFoodsToday} apiKey={data.profile.apiKey} customFoods={data.customFoods} mutate={mutate} schedule={data.schedule} />}
         {tab==="study" && <Study data={data} persist={persist} mutate={mutate} />}
@@ -340,7 +443,7 @@ function SaveBadge({ status, onRetry }) {
 }
 
 // ================= 오늘 (대시보드) =================
-function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps, apiKey, customFoods }) {
+function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps, apiKey, customFoods, mutate }) {
   const k = todayKey();
   const day = data.schedule[k] || emptyDay();
   const proteinSum = day.foods.reduce((s,f)=>s+num(f.protein),0);
@@ -348,7 +451,18 @@ function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps,
   const sugarSum = day.foods.reduce((s,f)=>s+num(f.sugar),0);
   const fatSum = day.foods.reduce((s,f)=>s+num(f.fat),0);
   const kcalIn = day.foods.reduce((s,f)=>s+num(f.kcal),0);
-  const kcalOut = day.cardio ? num(day.cardio.kcal) : 0;
+  // 오늘 계획 (계획 캘린더와 같은 데이터)
+  const todayPlans = [...((data.plans||{})[k]||[])].sort((a,b)=>String(a.start).localeCompare(String(b.start)));
+  const planDoneCount = todayPlans.filter(p=>p.done).length;
+  const togglePlanDone = (id) => mutate((prev)=>{
+    const np = { ...(prev.plans||{}) };
+    const list = (np[k]||[]).map(p=> p.id===id ? { ...p, done: !p.done } : p);
+    np[k] = list;
+    return { ...prev, plans: np };
+  });
+
+  const stepsKcal = stepsToKcal(day.steps, weight);
+  const kcalOut = (day.cardio ? num(day.cardio.kcal) : 0) + stepsKcal;
   const t = day.type ? TYPES[day.type] : null;
   const dt = new Date();
 
@@ -365,7 +479,7 @@ function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps,
   const studyToday = (data.study||[]).filter((s)=>s.date===k).reduce((a,s)=>a+s.minutes,0);
 
   // 이번 주 리포트
-  const workoutDays = days.filter((dk)=> data.schedule[dk]?.type && data.schedule[dk].type!=="rest").length;
+  const workoutDays = days.filter((dk)=> didWorkout(data.schedule[dk])).length;
   const cardioSessions = days.filter((dk)=> data.schedule[dk]?.cardio).length;
   const avgProtein = Math.round(proteinByDay.reduce((a,b)=>a+b,0)/7);
   const weekNets = days.map((dk)=>{
@@ -399,17 +513,14 @@ function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps,
     const p = (data.schedule[kk]?.foods||[]).reduce((s,f)=>s+num(f.protein),0);
     return p >= target.low;
   }) : 0;
-  const workoutStreak = calcStreak((kk)=>{
-    const t2 = data.schedule[kk]?.type;
-    return t2 && t2!=="rest";
-  });
+  const workoutStreak = calcStreak((kk)=> didWorkout(data.schedule[kk]));
   const creatineStreak = calcStreak((kk)=> !!data.schedule[kk]?.creatine);
 
   // 오늘 달성 점수 (마스코트/게이지용): 판정 가능한 항목의 달성 비율
   const scoreParts = [];
   if (target) scoreParts.push(proteinSum >= target.low);
   if (tdee!=null && day.foods.length) scoreParts.push(Math.abs(net-surplus) <= 250);
-  scoreParts.push(!!(day.type && day.type!=="rest") || (day.partSets && Object.keys(day.partSets).length>0) || !!day.mainLift?.name);
+  scoreParts.push(didWorkout(day));
   if (mt) scoreParts.push(sugarSum <= mt.sugar);
   if (data.habits.length) scoreParts.push(Object.values(day.habitLog||{}).filter(Boolean).length === data.habits.length);
   const dayScore = scoreParts.length ? Math.round(scoreParts.filter(Boolean).length/scoreParts.length*100) : 0;
@@ -442,8 +553,45 @@ function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps,
 
       {/* 마스코트 */}
       <GlassCard glow={dayScore>=80?"#7DDB8A":dayScore>=50?"#8FD3FF":dayScore>=1?"#FFC24B":null}>
-        <Mascot score={dayScore} proteinPct={proteinPct} workedOut={!!(day.type&&day.type!=="rest")} />
+        <Mascot score={dayScore} proteinPct={proteinPct} workedOut={didWorkout(day)} />
       </GlassCard>
+
+      {/* 오늘 계획 */}
+      {todayPlans.length>0 && (
+        <Card>
+          <Row><span style={lbl}>오늘 계획</span>
+            <span style={{ fontSize:11.5, color: planDoneCount===todayPlans.length?TYPES.legs.color:C.muted, fontWeight:700 }}>
+              {planDoneCount}/{todayPlans.length} 완료{planDoneCount===todayPlans.length?" 🎉":""}
+            </span>
+          </Row>
+          <div style={{ display:"flex", flexDirection:"column", gap:6, marginTop:10 }}>
+            {todayPlans.map((p)=>{
+              const done = !!p.done;
+              const now = new Date();
+              const st = planDate(k, p.start);
+              const soon = !done && st>now && (st-now) < 2*60*60*1000;
+              const past = !done && st<now;
+              return (
+                <div key={p.id} onClick={()=>togglePlanDone(p.id)}
+                  style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:11, cursor:"pointer",
+                    background: done?tint(TYPES.legs.color,0.1):C.surface2,
+                    border:`1px solid ${done?tint(TYPES.legs.color,0.4):soon?tint(STUDY_ACCENT,0.45):C.line}`, transition:"all .2s" }}>
+                  <div style={{ width:21, height:21, borderRadius:"50%", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center",
+                    background: done?TYPES.legs.color:"transparent", border:`2px solid ${done?TYPES.legs.color:C.muted}`,
+                    color:"#141519", fontSize:12, fontWeight:900 }}>{done?"✓":""}</div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:800, color: done?C.muted:C.text,
+                      textDecoration: done?"line-through":"none", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.title}</div>
+                    <div style={{ fontSize:10.5, color: soon?STUDY_ACCENT:C.muted, marginTop:2, fontWeight: soon?700:400 }}>
+                      {p.start}{p.end?`~${p.end}`:""}{soon?" · 곧 시작":past?" · 지난 일정":""}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
 
       {/* 칼로리 판정 */}
       <Card>
@@ -461,7 +609,7 @@ function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps,
               <span style={{ fontSize:15, color:C.muted }}>kcal · {net>=0?"잉여":"적자"}</span>
             </div>
             <div style={{ fontSize:12, color:C.muted, marginTop:6 }}>
-              섭취 {kcalIn} · 유산소 소모 {kcalOut} · 목표 잉여 {surplus>=0?"+":""}{surplus}
+              섭취 {kcalIn} · 소모 {kcalOut} · 목표 잉여 {surplus>=0?"+":""}{surplus}
               {" · "}
               <span style={{ color: net>=surplus?TYPES.legs.color:C.amber }}>
                 {net>=surplus ? "목표 달성" : `목표까지 ${surplus-net}kcal`}
@@ -469,6 +617,38 @@ function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps,
             </div>
           </>
         )}
+
+        {/* 걸음수 → 소모 칼로리 */}
+        <div style={{ marginTop:14, paddingTop:14, borderTop:`1px solid ${C.line}` }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:9 }}>
+            <span style={{ fontSize:12, fontWeight:800, color:C.muted }}>🚶 걸음수</span>
+            {stepsKcal>0 && <span style={{ fontSize:12, fontWeight:800, color:"#5AD1A0" }}>≈ {stepsKcal}kcal 소모</span>}
+          </div>
+          <div style={{ display:"flex", gap:7, alignItems:"center" }}>
+            <div style={{ flex:1, minWidth:0, display:"flex", alignItems:"center", background:C.surface2, borderRadius:10, padding:"0 12px" }}>
+              <input value={day.steps ? String(day.steps) : ""} onChange={(e)=>updateDay(k,{steps:Math.max(0,Math.min(100000,Math.round(num(e.target.value.replace(/[^0-9]/g,"")))))})}
+                inputMode="numeric" placeholder="0"
+                style={{ flex:1, minWidth:0, background:"none", border:"none", outline:"none", color:C.text, fontSize:19, fontWeight:800, padding:"11px 0" }} />
+              <span style={{ fontSize:12, color:C.muted, fontWeight:700 }}>보</span>
+            </div>
+            <div style={{ display:"flex", gap:5 }}>
+              {[1000,3000,5000].map((n)=>(
+                <button key={n} onClick={()=>updateDay(k,{steps:(num(day.steps)||0)+n})}
+                  style={{...chip(false,"#5AD1A0"), padding:"9px 9px", fontSize:11.5}}>+{n/1000}천</button>
+              ))}
+            </div>
+          </div>
+          {day.steps>0 ? (
+            <div style={{ fontSize:10.5, color:C.muted, marginTop:7, lineHeight:1.5 }}>
+              {weight?`체중 ${weight}kg`:"체중 70kg 가정"} 기준 걷기 소모량이에요. 위 칼로리 밸런스에 이미 반영돼 있어요.
+              <button onClick={()=>updateDay(k,{steps:0})} style={{ background:"none", border:"none", color:C.danger, fontSize:10.5, fontWeight:700, cursor:"pointer", padding:"0 0 0 6px" }}>지우기</button>
+            </div>
+          ) : (
+            <div style={{ fontSize:10.5, color:C.muted, marginTop:7, lineHeight:1.5 }}>
+              휴대폰 건강앱의 걸음수를 입력하면 소모 칼로리로 자동 계산돼요.
+            </div>
+          )}
+        </div>
       </Card>
 
       {/* 영양 */}
@@ -483,6 +663,11 @@ function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps,
         <NutriRow label="탄수화물" value={carbsSum} target={mt?mt.carb:null} color="#5AA9FF" overType="soft" />
         <NutriRow label="지방" value={fatSum} target={mt?mt.fat:null} color="#FFB74B" overType="soft" />
         <NutriRow label="당류" value={sugarSum} target={mt?mt.sugar:null} color="#FF8FB0" overType="hard" capLabel="상한" />
+
+        {/* 탄단지 비율 */}
+        <MacroRatio carbs={carbsSum} protein={proteinSum} fat={fatSum}
+          goal={MACRO_GOALS[data.profile.macroGoal] || MACRO_GOALS.lean} />
+
         <div style={{ fontSize:11, color:C.muted, margin:"16px 0 4px" }}>최근 7일 단백질</div>
         <Bars7 values={proteinByDay} color={TYPES.legs.color} target={target?target.low:null} suffix="g" />
       </Card>
@@ -539,7 +724,11 @@ function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps,
       {/* 오늘 운동 / 공부 */}
       <div style={{ display:"flex", gap:10 }}>
         <div style={{ flex:1, minWidth:0 }}>
-          <MiniCard label="오늘 운동" value={t?(day.type==="custom"&&day.parts.length?day.parts.join("·"):t.label):"미설정"} unit="" color={t?t.color:C.muted} />
+          <MiniCard label="오늘 운동"
+            value={ t ? (day.type==="custom"&&day.parts.length?day.parts.join("·"):t.label)
+                  : Object.keys(day.partSets||{}).length>0 ? `${Object.values(day.partSets).reduce((s,v)=>s+num(v),0)}세트`
+                  : day.mainLift?.name ? day.mainLift.name : "미설정" }
+            unit="" color={ t ? t.color : didWorkout(day) ? TYPES.push.color : C.muted } />
         </div>
         <div style={{ flex:1, minWidth:0 }}>
           <MiniCard label="오늘 공부" value={studyToday?fmtMin(studyToday):"0분"} unit="" color={STUDY_ACCENT} />
@@ -548,7 +737,7 @@ function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps,
       {(day.cardio || day.lifts.length>0 || Object.keys(day.partSets||{}).length>0) && (
         <Card>
           {day.cardio && <div style={{ fontSize:13, color:CARDIO[day.cardio.type].color, fontWeight:700 }}>
-            유산소 · {CARDIO[day.cardio.type].label} {day.cardio.min}분 {kcalOut>0?`· ${kcalOut}kcal`:""}</div>}
+            유산소 · {CARDIO[day.cardio.type].label} {day.cardio.min}분 {num(day.cardio.kcal)>0?`· ${num(day.cardio.kcal)}kcal`:""}</div>}
           {Object.keys(day.partSets||{}).length>0 && (
             <div style={{ fontSize:13, marginTop:day.cardio?6:0 }}>
               <b style={{ color:TYPES.push.color }}>부위</b>{" "}
@@ -652,7 +841,463 @@ function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps,
 }
 
 // ================= 캘린더 =================
+// 캘린더 셀에 겹쳐 보여줄 지표
+const METRICS = {
+  none:   { label:"표시 안 함", color:C.muted },
+  kcalIn: { label:"먹은 kcal",  color:"#FF8FB0" },
+  burn:   { label:"소모 kcal",  color:"#5AD1A0" },
+  water:  { label:"물",         color:"#6BC5F0" },
+};
+const cellMetric = (e, metric, weight) => {
+  if (!e || metric==="none") return null;
+  if (metric==="kcalIn") { const v=(e.foods||[]).reduce((s,f)=>s+num(f.kcal),0); return v>0?`${v}`:null; }
+  if (metric==="burn")   { const v=burnedKcal(e, weight); return v>0?`${v}`:null; }
+  if (metric==="water")  { const v=num(e.water); return v>0?`${(v*0.25).toFixed(2).replace(/\.?0+$/,"")}L`:null; }
+  return null;
+};
+
+// 월 이동 헤더 (제목 탭 → 연·월 선택, 오늘 버튼) — 기록/계획 모드 공용
+function MonthNav({ view, setView, accent, right }) {
+  const [pickOpen, setPickOpen] = useState(false);
+  const today = new Date();
+  const isThisMonth = view.y===today.getFullYear() && view.m===today.getMonth();
+  const move = (d)=>{ let m=view.m+d, y=view.y; if(m<0){m=11;y--;} else if(m>11){m=0;y++;} setView({y,m}); };
+  return (
+    <div style={{ padding:"14px 18px 10px" }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
+        <button onClick={()=>setPickOpen(true)} style={{ background:"none", border:"none", padding:0, cursor:"pointer",
+          display:"flex", alignItems:"baseline", gap:8, minWidth:0 }}>
+          <span style={{ fontSize:27, fontWeight:800, letterSpacing:-1, color:C.text }}>{MONTHS[view.m]}</span>
+          <span style={{ fontSize:14, color:C.muted, fontWeight:600 }}>{view.y}</span>
+          <span style={{ fontSize:11, color:accent }}>▾</span>
+        </button>
+        <div style={{ display:"flex", gap:6, alignItems:"center", flexShrink:0 }}>
+          {!isThisMonth && (
+            <button onClick={()=>setView({ y:today.getFullYear(), m:today.getMonth() })}
+              style={{ background:tint(accent,0.14), border:`1px solid ${tint(accent,0.45)}`, color:accent,
+                borderRadius:999, padding:"6px 12px", fontSize:11.5, fontWeight:800, cursor:"pointer", whiteSpace:"nowrap" }}>오늘</button>
+          )}
+          <button onClick={()=>move(-1)} style={navBtn}>‹</button>
+          <button onClick={()=>move(1)} style={navBtn}>›</button>
+          {right}
+        </div>
+      </div>
+
+      {pickOpen && (
+        <div onClick={()=>setPickOpen(false)} style={sheetBg}>
+          <div onClick={(e)=>e.stopPropagation()} style={{...sheet, maxHeight:"none", paddingBottom:"calc(18px + env(safe-area-inset-bottom))"}}>
+            <div style={grip} />
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
+              <button onClick={()=>setView({ ...view, y:view.y-1 })} style={navBtn}>‹</button>
+              <span style={{ fontSize:19, fontWeight:800 }}>{view.y}년</span>
+              <button onClick={()=>setView({ ...view, y:view.y+1 })} style={navBtn}>›</button>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:7 }}>
+              {MONTHS.map((mm,i)=>{
+                const on = view.m===i;
+                const cur = view.y===today.getFullYear() && i===today.getMonth();
+                return (
+                  <button key={mm} onClick={()=>{ setView({ ...view, m:i }); setPickOpen(false); }}
+                    style={{ padding:"12px 0", borderRadius:10, cursor:"pointer", fontSize:13, fontWeight:800,
+                      border:`1.5px solid ${on?accent:cur?tint(accent,0.5):C.line}`,
+                      background: on?tint(accent,0.16):C.surface2, color: on?accent:C.text }}>{mm}</button>
+                );
+              })}
+            </div>
+            <button onClick={()=>{ setView({ y:today.getFullYear(), m:today.getMonth() }); setPickOpen(false); }}
+              style={{...primary(accent), width:"100%", marginTop:14}}>이번 달로 이동</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 계획 편집 시트
+function PlanEditor({ dateKey, list, onSave, onClose, onShare }) {
+  const [items, setItems] = useState(()=>list.map(p=>({...p})));
+  const [draft, setDraft] = useState({ title:"", start:"09:00", end:"10:00", alarm:10, note:"" });
+  const add = () => {
+    if (!draft.title.trim()) return;
+    setItems((l)=>[...l, { ...draft, id:uid(), title:draft.title.trim() }]
+      .sort((a,b)=>String(a.start).localeCompare(String(b.start))));
+    setDraft({ title:"", start:draft.start, end:draft.end, alarm:draft.alarm, note:"" });
+  };
+  const remove = (id)=> setItems((l)=>l.filter(x=>x.id!==id));
+  const save = ()=>{ onSave(items); onClose(); };
+  const dow = WEEKDAYS[new Date(dateKey+"T00:00:00").getDay()];
+
+  return (
+    <div onClick={save} style={sheetBg}>
+      <div onClick={(e)=>e.stopPropagation()} style={sheet}>
+        <div style={{ flexShrink:0 }}>
+          <div style={grip} />
+          <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginBottom:12 }}>
+            <span style={{ fontSize:15, fontWeight:800 }}>{dateKey.replace(/-/g,".")} ({dow})</span>
+            <span style={{ fontSize:11, color:C.muted }}>계획 {items.length}개</span>
+          </div>
+        </div>
+
+        <div style={{ flex:1, minHeight:0, overflowY:"auto", paddingRight:2, overscrollBehavior:"contain" }}>
+          {/* 등록된 계획 */}
+          {items.length>0 && (
+            <div style={{ display:"flex", flexDirection:"column", gap:7, marginBottom:16 }}>
+              {items.map((p)=>(
+                <div key={p.id} style={{ display:"flex", alignItems:"center", gap:9, background:C.surface2, borderRadius:11, padding:"10px 12px" }}>
+                  <div style={{ width:3, alignSelf:"stretch", borderRadius:99, background:STUDY_ACCENT }} />
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:800, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.title}</div>
+                    <div style={{ fontSize:10.5, color:C.muted, marginTop:2 }}>
+                      {p.start}{p.end?` ~ ${p.end}`:""}
+                      {p.alarm!=null && num(p.alarm)>=0 ? ` · 🔔 ${ALARM_OPTIONS.find(a=>a.v===num(p.alarm))?.label||""}` : " · 알림 없음"}
+                    </div>
+                    {p.note && <div style={{ fontSize:10.5, color:C.muted, marginTop:3 }}>{p.note}</div>}
+                  </div>
+                  <button onClick={()=>onShare([{dateKey, plan:p}], p.title)} title="휴대폰 캘린더에 추가"
+                    style={{ background:"none", border:`1px solid ${tint(STUDY_ACCENT,0.45)}`, color:STUDY_ACCENT,
+                      borderRadius:8, padding:"6px 8px", cursor:"pointer", fontSize:12, flexShrink:0 }}>📲</button>
+                  <button onClick={()=>remove(p.id)} style={{ background:"none", border:"none", color:C.muted, fontSize:17, cursor:"pointer", padding:"0 2px", flexShrink:0 }}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 새 계획 */}
+          <div style={{ fontSize:11.5, color:C.muted, fontWeight:800, marginBottom:8 }}>새 계획 추가</div>
+          <input value={draft.title} onChange={(e)=>setDraft({...draft, title:e.target.value})}
+            placeholder="무엇을 할 건가요? (예: 헬스장 등·이두)" style={{...inp, width:"100%", boxSizing:"border-box"}} />
+          <div style={{ display:"flex", gap:7, marginTop:8, alignItems:"center" }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>시작</div>
+              <input type="time" value={draft.start} onChange={(e)=>setDraft({...draft, start:e.target.value})}
+                style={{...inp, width:"100%", boxSizing:"border-box", padding:"10px"}} />
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>종료</div>
+              <input type="time" value={draft.end} onChange={(e)=>setDraft({...draft, end:e.target.value})}
+                style={{...inp, width:"100%", boxSizing:"border-box", padding:"10px"}} />
+            </div>
+          </div>
+          <div style={{ fontSize:10, color:C.muted, margin:"12px 0 6px" }}>알림</div>
+          <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+            {ALARM_OPTIONS.map((a)=>(
+              <button key={a.v} onClick={()=>setDraft({...draft, alarm:a.v})}
+                style={{...chip(num(draft.alarm)===a.v, STUDY_ACCENT), padding:"6px 10px", fontSize:11.5}}>{a.label}</button>
+            ))}
+          </div>
+          <input value={draft.note} onChange={(e)=>setDraft({...draft, note:e.target.value})}
+            placeholder="메모 (선택)" style={{...inp, width:"100%", boxSizing:"border-box", marginTop:10}} />
+          <button onClick={add} disabled={!draft.title.trim()}
+            style={{...primary(STUDY_ACCENT), width:"100%", marginTop:10, opacity:draft.title.trim()?1:0.45}}>+ 계획 추가</button>
+
+          {items.length>0 && (
+            <button onClick={()=>onShare(items.map(p=>({dateKey, plan:p})), `${dateKey.slice(5).replace("-",".")} 계획 ${items.length}개`)}
+              style={{...ghost, width:"100%", marginTop:8}}>📲 이 날 계획 휴대폰 캘린더에 넣기</button>
+          )}
+          <div style={{ height:8 }} />
+        </div>
+
+        <div style={{ flexShrink:0, display:"flex", gap:8, padding:"12px 0 calc(14px + env(safe-area-inset-bottom))",
+          borderTop:`1px solid ${C.line}`, background:C.surface }}>
+          <button onClick={save} style={{...primary(TYPES.legs.color), flex:1}}>저장</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 휴대폰 캘린더로 넘기기 시트
+function PlanShareSheet({ target, onClose }) {
+  const { items, label } = target;
+  const single = items.length===1 ? items[0] : null;
+  const [msg, setMsg] = useState("");
+  const doDownload = () => {
+    try { downloadICS(items, `linmassup-plan.ics`); setMsg("파일을 내려받았어요. 알림 창이나 '파일' 앱에서 열면 캘린더 앱으로 들어가요."); }
+    catch(e){ setMsg("내려받기가 막혔어요. 아래 구글 캘린더 방법을 써보세요."); }
+  };
+  const doShare = async () => {
+    try {
+      const file = new File([buildICS(items)], "linmassup-plan.ics", { type:"text/calendar" });
+      if (navigator.canShare && navigator.canShare({ files:[file] })) {
+        await navigator.share({ files:[file], title:label });
+        setMsg("공유 창에서 캘린더 앱을 고르면 등록돼요."); return;
+      }
+    } catch(e){}
+    doDownload();
+  };
+  return (
+    <div onClick={onClose} style={sheetBg}>
+      <div onClick={(e)=>e.stopPropagation()} style={{...sheet, maxHeight:"none", paddingBottom:"calc(18px + env(safe-area-inset-bottom))"}}>
+        <div style={grip} />
+        <div style={{ fontSize:16, fontWeight:800 }}>휴대폰 캘린더에 넣기</div>
+        <div style={{ fontSize:11.5, color:C.muted, marginTop:5 }}>{label}</div>
+
+        <div style={{ marginTop:12, padding:"11px 12px", borderRadius:10, background:tint(STUDY_ACCENT,0.1), border:`1px solid ${tint(STUDY_ACCENT,0.35)}` }}>
+          <div style={{ fontSize:11.5, color:C.muted, lineHeight:1.6 }}>
+            웹앱은 직접 알람을 울릴 수 없어서, <b style={{color:C.text}}>휴대폰 기본 캘린더</b>에 일정을 넘겨요.
+            그러면 앱을 꺼놔도 설정한 시간에 <b style={{color:C.text}}>휴대폰 알림</b>이 울려요.
+          </div>
+        </div>
+
+        <button onClick={doShare} style={{...primary(STUDY_ACCENT), width:"100%", marginTop:12}}>
+          캘린더 파일로 보내기 (알림 포함)
+        </button>
+        <div style={{ fontSize:10.5, color:C.muted, marginTop:6, lineHeight:1.5 }}>
+          여러 일정을 한 번에 등록할 수 있고, 설정한 알림 시각도 같이 들어가요.
+        </div>
+
+        {single && (<>
+          <a href={googleCalUrl(single.dateKey, single.plan)} target="_blank" rel="noreferrer"
+            style={{...ghost, width:"100%", marginTop:10, display:"block", textAlign:"center", textDecoration:"none", boxSizing:"border-box"}}>
+            구글 캘린더로 열기
+          </a>
+          <div style={{ fontSize:10.5, color:C.muted, marginTop:6, lineHeight:1.5 }}>
+            구글 캘린더가 열리면서 내용이 채워져요. 저장만 누르면 되고, 알림은 구글 캘린더 기본 설정을 따라요.
+          </div>
+        </>)}
+
+        {msg && <div style={{ fontSize:11.5, color:STUDY_ACCENT, marginTop:12, lineHeight:1.55, fontWeight:600 }}>{msg}</div>}
+        <button onClick={onClose} style={{...ghost, width:"100%", marginTop:14}}>닫기</button>
+      </div>
+    </div>
+  );
+}
+
+// 주간 시간표 — 하루 일정이 시간대에 어떻게 놓이는지 한눈에
+function PlanWeek({ weekAnchor, setWeekAnchor, dayPlans, onOpen }) {
+  const HOUR_H = 34;           // 1시간 높이(px)
+  const toMin = (hhmm)=>{ const [h,m]=(hhmm||"0:00").split(":").map(Number); return (h||0)*60+(m||0); };
+  // 기준일이 속한 주(일요일 시작)
+  const base = new Date(weekAnchor); base.setHours(0,0,0,0);
+  const sun = new Date(base); sun.setDate(base.getDate()-base.getDay());
+  const days = [...Array(7)].map((_,i)=>{ const d=new Date(sun); d.setDate(sun.getDate()+i); return d; });
+  const keys = days.map(d=>keyOf(d.getFullYear(),d.getMonth(),d.getDate()));
+  const all = keys.flatMap((kk)=>dayPlans(kk).map(p=>({ kk, p })));
+
+  // 계획이 있는 시간대만 보여줘서 세로 길이를 줄인다 (없으면 8~22시)
+  const mins = all.flatMap(({p})=>[toMin(p.start), Math.max(toMin(p.end||p.start), toMin(p.start)+60)]);
+  const startH = all.length ? Math.max(0, Math.floor(Math.min(...mins)/60)-1) : 8;
+  const endH   = all.length ? Math.min(24, Math.ceil(Math.max(...mins)/60)+1) : 22;
+  const hours = [...Array(Math.max(1,endH-startH))].map((_,i)=>startH+i);
+  const todayK = todayKey();
+
+  const moveWeek = (d)=>{ const n=new Date(sun); n.setDate(sun.getDate()+d*7); setWeekAnchor(n); };
+  const label = `${sun.getMonth()+1}.${sun.getDate()} ~ ${days[6].getMonth()+1}.${days[6].getDate()}`;
+  const isThisWeek = keys.includes(todayK);
+
+  return (
+    <div>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 18px 10px", gap:8 }}>
+        <span style={{ fontSize:17, fontWeight:800, letterSpacing:-0.3 }}>{label}</span>
+        <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+          {!isThisWeek && (
+            <button onClick={()=>setWeekAnchor(new Date())}
+              style={{ background:tint(STUDY_ACCENT,0.14), border:`1px solid ${tint(STUDY_ACCENT,0.45)}`, color:STUDY_ACCENT,
+                borderRadius:999, padding:"6px 12px", fontSize:11.5, fontWeight:800, cursor:"pointer", whiteSpace:"nowrap" }}>이번 주</button>
+          )}
+          <button onClick={()=>moveWeek(-1)} style={navBtn}>‹</button>
+          <button onClick={()=>moveWeek(1)} style={navBtn}>›</button>
+        </div>
+      </div>
+
+      {/* 요일 헤더 */}
+      <div style={{ display:"flex", padding:"0 12px", gap:3 }}>
+        <div style={{ width:28, flexShrink:0 }} />
+        {days.map((d,i)=>{
+          const kk=keys[i], isT=kk===todayK;
+          return (
+            <button key={kk} onClick={()=>onOpen(kk)} style={{ flex:1, minWidth:0, background:"none", border:"none", cursor:"pointer",
+              padding:"3px 0 6px", display:"flex", flexDirection:"column", alignItems:"center", gap:1 }}>
+              <span style={{ fontSize:9.5, fontWeight:700, color:i===0?"#FF6B6B":i===6?"#6BA8FF":C.muted }}>{WEEKDAYS[i]}</span>
+              <span style={{ fontSize:12, fontWeight:800, color:isT?"#141519":C.text,
+                background:isT?STUDY_ACCENT:"transparent", borderRadius:"50%", width:21, height:21,
+                display:"flex", alignItems:"center", justifyContent:"center" }}>{d.getDate()}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 시간 격자 */}
+      <div style={{ display:"flex", padding:"0 12px", gap:3 }}>
+        {/* 시간 눈금 */}
+        <div style={{ width:28, flexShrink:0, position:"relative", height:hours.length*HOUR_H }}>
+          {hours.map((h,i)=>(
+            <div key={h} style={{ position:"absolute", top:i*HOUR_H-5, right:4, fontSize:8.5, color:C.muted, fontWeight:600 }}>{h}시</div>
+          ))}
+        </div>
+        {/* 요일 열 */}
+        {days.map((d,i)=>{
+          const kk=keys[i]; const list=dayPlans(kk); const isT=kk===todayK;
+          return (
+            <div key={kk} onClick={()=>onOpen(kk)} style={{ flex:1, minWidth:0, position:"relative", height:hours.length*HOUR_H,
+              background: isT?tint(STUDY_ACCENT,0.07):C.surface, borderRadius:8, cursor:"pointer", overflow:"hidden" }}>
+              {/* 시간선 */}
+              {hours.map((h,hi)=>(
+                <div key={h} style={{ position:"absolute", top:hi*HOUR_H, left:0, right:0, height:1, background:C.line, opacity:0.5 }} />
+              ))}
+              {/* 일정 블록 */}
+              {list.map((p)=>{
+                const st=toMin(p.start), en=Math.max(toMin(p.end||p.start), st+30);
+                const top=(st-startH*60)/60*HOUR_H;
+                const h=Math.max(15,(en-st)/60*HOUR_H-2);
+                if (top+h < 0 || top > hours.length*HOUR_H) return null;
+                return (
+                  <div key={p.id} title={`${p.start} ${p.title}`}
+                    style={{ position:"absolute", top:Math.max(0,top), left:2, right:2, height:h, borderRadius:5,
+                      background: p.done?tint(TYPES.legs.color,0.35):tint(STUDY_ACCENT,0.4),
+                      borderLeft:`2px solid ${p.done?TYPES.legs.color:STUDY_ACCENT}`, padding:"2px 3px", overflow:"hidden" }}>
+                    <div style={{ fontSize:8, fontWeight:800, color:C.text, lineHeight:1.15,
+                      textDecoration:p.done?"line-through":"none",
+                      overflow:"hidden", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>{p.title}</div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+
+      {all.length===0 && (
+        <div style={{ padding:"18px", textAlign:"center", color:C.muted, fontSize:12.5, lineHeight:1.6 }}>
+          이번 주 계획이 없어요. 날짜를 탭해서 추가해보세요.
+        </div>
+      )}
+      <div style={{ fontSize:10.5, color:C.muted, padding:"10px 18px 0", textAlign:"center" }}>
+        날짜나 시간표를 탭하면 그날 계획을 편집할 수 있어요
+      </div>
+    </div>
+  );
+}
+
+// ================= 계획 캘린더 =================
+function PlanCalendar({ data, mutate }) {
+  const today = new Date();
+  const [view, setView] = useState({ y:today.getFullYear(), m:today.getMonth() });
+  const [planView, setPlanView] = useState("month"); // month | week
+  const [weekAnchor, setWeekAnchor] = useState(()=>new Date()); // 주간 보기 기준일
+  const [openKey, setOpenKey] = useState(null);   // 계획 편집 시트를 연 날짜
+  const [shareTarget, setShareTarget] = useState(null); // {dateKey, plans[]}
+  const plans = data.plans || {};
+
+  const firstDow = new Date(view.y,view.m,1).getDay();
+  const dim = new Date(view.y,view.m+1,0).getDate();
+  const cells=[]; for(let i=0;i<firstDow;i++) cells.push(null); for(let d=1;d<=dim;d++) cells.push(d);
+  const isToday = (d)=> d && view.y===today.getFullYear() && view.m===today.getMonth() && d===today.getDate();
+  const dayPlans = (kk)=> [...(plans[kk]||[])].sort((a,b)=>String(a.start).localeCompare(String(b.start)));
+
+  const savePlans = (kk, list) => mutate((prev)=>{
+    const np = { ...(prev.plans||{}) };
+    if (list && list.length) np[kk] = list; else delete np[kk];
+    return { ...prev, plans: np };
+  });
+
+  // 이번 달 계획 전부 + 다가오는 계획
+  const monthKeys = [...Array(dim)].map((_,i)=>keyOf(view.y,view.m,i+1));
+  const monthPlanCount = monthKeys.reduce((s,kk)=>s+(plans[kk]||[]).length,0);
+  const todayK = todayKey();
+  const upcoming = Object.keys(plans).filter(kk=>kk>=todayK).sort()
+    .flatMap(kk=> dayPlans(kk).map(p=>({ dateKey:kk, plan:p }))).slice(0,3);
+
+  return (
+    <div>
+      {/* 월간 / 주간 보기 전환 */}
+      <div style={{ display:"flex", gap:6, padding:"12px 18px 0" }}>
+        {[["month","월간"],["week","주간 시간표"]].map(([k2,label])=>(
+          <button key={k2} onClick={()=>setPlanView(k2)}
+            style={{...chip(planView===k2, STUDY_ACCENT), padding:"7px 13px", fontSize:12}}>{label}</button>
+        ))}
+      </div>
+
+      {planView==="month" && <MonthNav view={view} setView={setView} accent={STUDY_ACCENT} />}
+
+      {/* 다가오는 계획 */}
+      {upcoming.length>0 && (
+        <div style={{ padding:"0 18px 12px" }}>
+          <div style={{ fontSize:11, color:C.muted, fontWeight:700, marginBottom:7 }}>다가오는 계획</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            {upcoming.map(({dateKey,plan})=>(
+              <div key={plan.id} onClick={()=>setOpenKey(dateKey)}
+                style={{ display:"flex", alignItems:"center", gap:10, background:C.surface, border:`1px solid ${C.line}`,
+                  borderRadius:11, padding:"10px 12px", cursor:"pointer" }}>
+                <div style={{ width:3, alignSelf:"stretch", borderRadius:99, background:STUDY_ACCENT }} />
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:800, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{plan.title}</div>
+                  <div style={{ fontSize:10.5, color:C.muted, marginTop:2 }}>
+                    {dateKey.slice(5).replace("-",".")} · {plan.start}{plan.end?`~${plan.end}`:""}
+                    {num(plan.alarm)>=0 && plan.alarm!=null ? ` · 🔔 ${ALARM_OPTIONS.find(a=>a.v===num(plan.alarm))?.label||""}` : ""}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {planView==="week" ? (
+        <PlanWeek weekAnchor={weekAnchor} setWeekAnchor={setWeekAnchor} dayPlans={dayPlans} onOpen={setOpenKey} />
+      ) : (<>
+      {/* 요일 */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", padding:"0 12px", gap:4 }}>
+        {WEEKDAYS.map((w,i)=>(<div key={w} style={{ textAlign:"center", fontSize:11, fontWeight:700, padding:"4px 0",
+          color:i===0?"#FF6B6B":i===6?"#6BA8FF":C.muted }}>{w}</div>))}
+      </div>
+      {/* 날짜 */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", padding:"4px 12px", gap:4 }}>
+        {cells.map((d,i)=>{
+          if(!d) return <div key={i} />;
+          const kk = keyOf(view.y,view.m,d);
+          const list = dayPlans(kk);
+          return (
+            <button key={i} onClick={()=>setOpenKey(kk)} style={{
+              aspectRatio:"1 / 1.15", borderRadius:12, cursor:"pointer",
+              border: isToday(d)?`2px solid ${STUDY_ACCENT}`:`1px solid ${C.line}`,
+              background: list.length?tint(STUDY_ACCENT,0.13):C.surface,
+              display:"flex", flexDirection:"column", alignItems:"flex-start", justifyContent:"flex-start",
+              padding:"5px 5px", overflow:"hidden", textAlign:"left", gap:2 }}>
+              <span style={{ fontSize:12, fontWeight:700, color:isToday(d)?C.text:C.muted }}>{d}</span>
+              {list.slice(0,2).map((p)=>(
+                <span key={p.id} style={{ fontSize:8, fontWeight:700, color:STUDY_ACCENT, lineHeight:1.15,
+                  width:"100%", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                  {p.start} {p.title}
+                </span>
+              ))}
+              {list.length>2 && <span style={{ fontSize:8, color:C.muted, fontWeight:700 }}>+{list.length-2}</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      </>)}
+
+      {/* 이번 달 전체 내보내기 */}
+      {planView==="month" && monthPlanCount>0 && (
+        <div style={{ padding:"14px 18px 0" }}>
+          <button onClick={()=>setShareTarget({ label:`${MONTHS[view.m]} 계획 ${monthPlanCount}개`,
+            items: monthKeys.flatMap(kk=>dayPlans(kk).map(p=>({dateKey:kk, plan:p}))) })}
+            style={{...primary(STUDY_ACCENT), width:"100%"}}>📲 이번 달 계획 휴대폰 캘린더에 넣기</button>
+          <div style={{ fontSize:10.5, color:C.muted, marginTop:7, lineHeight:1.5, textAlign:"center" }}>
+            휴대폰 기본 캘린더로 넘기면 설정한 시간에 알림이 울려요
+          </div>
+        </div>
+      )}
+
+      {openKey && <PlanEditor dateKey={openKey} list={dayPlans(openKey)}
+        onSave={(l)=>savePlans(openKey,l)} onClose={()=>setOpenKey(null)}
+        onShare={(items,label)=>setShareTarget({items,label})} />}
+      {shareTarget && <PlanShareSheet target={shareTarget} onClose={()=>setShareTarget(null)} />}
+    </div>
+  );
+}
+
 function Calendar({ data, persist, updateDay, favProps, apiKey, customFoods, routines, mutate }) {
+  const [mode, setMode] = useState("log"); // log = 운동·식단 기록 / plan = 시간 계획
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(false);
+  const [calMetric, setCalMetric] = useState("kcalIn"); // 셀에 겹쳐 볼 지표
+  const [resetOpen, setResetOpen] = useState(false);
+  const [undoSnapshot, setUndoSnapshot] = useState(null); // 되돌리기용 직전 상태
+  // 걸음수 칼로리 계산용 최신 체중
+  const calWeight = (()=>{ const ms=[...(data.measurements||[])].sort((a,b)=>b.date.localeCompare(a.date)); return ms.length?ms[0].weight:null; })();
   const today = new Date();
   const [view, setView] = useState({ y:today.getFullYear(), m:today.getMonth() });
   const [editKey, setEditKey] = useState(null);
@@ -666,35 +1311,123 @@ function Calendar({ data, persist, updateDay, favProps, apiKey, customFoods, rou
       const ex = next.schedule[kk]||emptyDay(); next.schedule[kk]={ ...ex, type:PRESET[dow], parts:[] }; }
     persist(next);
   };
-  const clearMonth = () => { const next={ ...data, schedule:{ ...schedule } };
-    const dim=new Date(view.y,view.m+1,0).getDate();
-    for(let d=1;d<=dim;d++) delete next.schedule[keyOf(view.y,view.m,d)]; persist(next); };
-  const move = (delta) => { let m=view.m+delta,y=view.y; if(m<0){m=11;y--;}else if(m>11){m=0;y++;} setView({y,m}); };
+
+  // ⚠️ 예전엔 이 버튼이 그 달 기록 전체(음식·물·수면·기분·일기까지)를 지웠음.
+  // 이제는 '이번 달 5분할 채우기'로 넣은 운동 배정(type/parts)만 되돌리고, 기록한 데이터는 모두 보존한다.
+  const monthKeys = (()=>{ const dimN=new Date(view.y,view.m+1,0).getDate();
+    return [...Array(dimN)].map((_,i)=>keyOf(view.y,view.m,i+1)); })();
+  const assignedCount = monthKeys.filter((kk)=> schedule[kk]?.type).length;
+  const clearAssignments = () => {
+    setUndoSnapshot({ schedule: JSON.parse(JSON.stringify(schedule)), label:`${MONTHS[view.m]} 운동 배정` });
+    const next = { ...data, schedule:{ ...schedule } };
+    for (const kk of monthKeys) {
+      const ex = next.schedule[kk];
+      if (!ex || !ex.type) continue;
+      const cleaned = { ...ex, type:null, parts:[] };
+      // 배정만 있고 실제 기록이 하나도 없던 날은 통째로 비움
+      const stillHas = (cleaned.foods&&cleaned.foods.length) || (cleaned.lifts&&cleaned.lifts.length) || cleaned.cardio
+        || cleaned.note || cleaned.sleep || cleaned.water || (cleaned.partSets&&Object.keys(cleaned.partSets).length)
+        || cleaned.mainLift || cleaned.creatine || cleaned.mood || cleaned.diary || cleaned.steps
+        || (cleaned.habitLog&&Object.keys(cleaned.habitLog).length);
+      if (stillHas) next.schedule[kk] = cleaned; else delete next.schedule[kk];
+    }
+    persist(next); setResetOpen(false);
+  };
+  const undoReset = () => {
+    if (!undoSnapshot) return;
+    persist({ ...data, schedule: undoSnapshot.schedule });
+    setUndoSnapshot(null);
+  };
+
+  // 이번 달 요약 (기록한 날 기준 평균)
+  const monthSummary = (()=>{
+    const ds = monthKeys.map((kk)=>schedule[kk]).filter(Boolean);
+    const withFood = ds.filter(e=>(e.foods||[]).length>0);
+    const withBurn = ds.filter(e=>burnedKcal(e, calWeight)>0);
+    const withWater = ds.filter(e=>num(e.water)>0);
+    const avg=(arr,sel)=> arr.length?Math.round(arr.reduce((s,x)=>s+sel(x),0)/arr.length):0;
+    return {
+      days: ds.length,
+      avgIn: avg(withFood, e=>(e.foods||[]).reduce((s,f)=>s+num(f.kcal),0)) || "—",
+      avgBurn: avg(withBurn, e=>burnedKcal(e, calWeight)) || "—",
+      avgWater: avg(withWater, e=>num(e.water)) || "—",
+    };
+  })();
 
   const firstDow = new Date(view.y,view.m,1).getDay();
   const dim = new Date(view.y,view.m+1,0).getDate();
   const cells=[]; for(let i=0;i<firstDow;i++) cells.push(null); for(let d=1;d<=dim;d++) cells.push(d);
   const isToday = (d)=> d && view.y===today.getFullYear() && view.m===today.getMonth() && d===today.getDate();
 
+  const modeTabs = (
+    <div style={{ display:"flex", gap:6, padding:"18px 18px 0" }}>
+      {[["log","🏋️ 기록"],["plan","🗓️ 계획"]].map(([k,label])=>(
+        <button key={k} onClick={()=>setMode(k)} style={{ flex:1, padding:"10px 0", borderRadius:11, cursor:"pointer",
+          border:`1.5px solid ${mode===k?(k==="plan"?STUDY_ACCENT:TYPES.push.color):C.line}`,
+          background: mode===k ? tint(k==="plan"?STUDY_ACCENT:TYPES.push.color, 0.15) : C.surface,
+          color: mode===k ? (k==="plan"?STUDY_ACCENT:TYPES.push.color) : C.muted,
+          fontSize:13, fontWeight:800 }}>{label}</button>
+      ))}
+    </div>
+  );
+
+  if (mode==="plan") return (<div>{modeTabs}<PlanCalendar data={data} mutate={mutate} /></div>);
+
   return (
     <div>
-      <div style={{ padding:"22px 18px 10px" }}>
-        <div style={{ fontSize:11, letterSpacing:3, color:TYPES.push.color, fontWeight:800 }}>5-DAY SPLIT</div>
-        <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginTop:6 }}>
-          <div style={{ display:"flex", alignItems:"baseline", gap:10 }}>
-            <span style={{ fontSize:32, fontWeight:800, letterSpacing:-1 }}>{MONTHS[view.m]}</span>
-            <span style={{ fontSize:15, color:C.muted, fontWeight:600 }}>{view.y}</span>
-          </div>
-          <div style={{ display:"flex", gap:8 }}>
-            <button onClick={()=>move(-1)} style={navBtn}>‹</button>
-            <button onClick={()=>move(1)} style={navBtn}>›</button>
+      {modeTabs}
+
+      <MonthNav view={view} setView={setView} accent={TYPES.push.color}
+        right={<button onClick={()=>setToolsOpen(v=>!v)} title="도구"
+          style={{...navBtn, color: toolsOpen?TYPES.push.color:C.muted, borderColor: toolsOpen?tint(TYPES.push.color,0.5):C.line}}>⋯</button>} />
+
+      {/* 도구 (접이식) — 자주 안 쓰는 동작은 숨겨둔다 */}
+      {toolsOpen && (
+        <div style={{ margin:"0 18px 12px", padding:"12px", background:C.surface, border:`1px solid ${C.line}`, borderRadius:12 }}>
+          <button onClick={()=>{ applyPreset(); setToolsOpen(false); }} style={{...primary(TYPES.push.color), width:"100%"}}>이번 달 5분할 채우기</button>
+          <button onClick={()=>{ setResetOpen(true); setToolsOpen(false); }} style={{...ghost, width:"100%", marginTop:7}}>운동 배정 지우기</button>
+          <div style={{ fontSize:10.5, color:C.muted, marginTop:9, lineHeight:1.5 }}>
+            배정 지우기는 운동 종류만 지우고 먹은 음식·물·기록은 그대로 둬요.
           </div>
         </div>
-      </div>
-      <div style={{ display:"flex", gap:8, padding:"0 18px 12px" }}>
-        <button onClick={applyPreset} style={{...primary(TYPES.push.color), flex:1}}>이번 달 5분할 채우기</button>
-        <button onClick={clearMonth} style={ghost}>초기화</button>
-      </div>
+      )}
+
+      {/* 되돌리기 */}
+      {undoSnapshot && (
+        <div style={{ margin:"0 18px 12px", padding:"11px 13px", borderRadius:11, background:tint(C.amber,0.12),
+          border:`1px solid ${tint(C.amber,0.45)}`, display:"flex", alignItems:"center", gap:10 }}>
+          <span style={{ flex:1, fontSize:11.5, color:C.amber, fontWeight:700 }}>{undoSnapshot.label}을 지웠어요</span>
+          <button onClick={undoReset} style={{...primary(C.amber), padding:"7px 14px", fontSize:12, color:"#141519"}}>되돌리기</button>
+          <button onClick={()=>setUndoSnapshot(null)} style={{ background:"none", border:"none", color:C.muted, fontSize:16, cursor:"pointer", padding:"0 2px" }}>×</button>
+        </div>
+      )}
+
+      {/* 운동 배정 지우기 확인 */}
+      {resetOpen && (
+        <div onClick={()=>setResetOpen(false)} style={sheetBg}>
+          <div onClick={(e)=>e.stopPropagation()} style={{...sheet, maxHeight:"none", paddingBottom:"calc(18px + env(safe-area-inset-bottom))"}}>
+            <div style={grip} />
+            <div style={{ fontSize:16, fontWeight:800, marginBottom:8 }}>{MONTHS[view.m]} 운동 배정을 지울까요?</div>
+            <div style={{ fontSize:12.5, color:C.muted, lineHeight:1.65 }}>
+              5분할로 배정된 <b style={{color:C.text}}>운동 종류만</b> 지워요{assignedCount>0?` (${assignedCount}일)`:""}.
+            </div>
+            <div style={{ marginTop:12, padding:"11px 13px", borderRadius:10, background:tint(TYPES.legs.color,0.1), border:`1px solid ${tint(TYPES.legs.color,0.35)}` }}>
+              <div style={{ fontSize:11.5, fontWeight:800, color:TYPES.legs.color, marginBottom:4 }}>✓ 이건 그대로 남아요</div>
+              <div style={{ fontSize:11, color:C.muted, lineHeight:1.6 }}>
+                먹은 음식 · 물 · 걸음수 · 부위 세트수 · 유산소 · 수면 · 기분 · 습관 · 일기 · 메모
+              </div>
+            </div>
+            <div style={{ fontSize:10.5, color:C.muted, marginTop:9, lineHeight:1.5 }}>
+              지운 뒤에도 <b style={{color:C.text}}>되돌리기</b> 버튼이 떠서 바로 복구할 수 있어요.
+            </div>
+            <div style={{ display:"flex", gap:8, marginTop:16 }}>
+              <button onClick={()=>setResetOpen(false)} style={{...ghost, flex:1}}>취소</button>
+              <button onClick={clearAssignments} style={{...primary(C.amber), flex:2, color:"#141519"}}>운동 배정만 지우기</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", padding:"0 12px", gap:4 }}>
         {WEEKDAYS.map((w,i)=>(<div key={w} style={{ textAlign:"center", fontSize:11, fontWeight:700, padding:"4px 0",
           color:i===0?"#FF6B6B":i===6?"#6BA8FF":C.muted }}>{w}</div>))}
@@ -724,6 +1457,10 @@ function Calendar({ data, persist, updateDay, favProps, apiKey, customFoods, rou
                 {label && <span style={{ fontSize:9.5, fontWeight:800, lineHeight:1.05, color:showColor, wordBreak:"keep-all",
                   overflow:"hidden", textOverflow:"ellipsis", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>{label}</span>}
                 {!t && totalSets>0 && <span style={{ fontSize:8.5, fontWeight:700, color:C.muted }}>{totalSets}세트</span>}
+                {calMetric!=="none" && (()=>{
+                  const mv = cellMetric(e, calMetric, calWeight);
+                  return mv ? <span style={{ fontSize:9, fontWeight:800, color:METRICS[calMetric].color, lineHeight:1.1 }}>{mv}</span> : null;
+                })()}
               </div>
               {e?.cardio && <span style={{ position:"absolute", top:6, right:6, width:7, height:7, borderRadius:"50%", background:CARDIO[e.cardio.type].color }} />}
               {e?.foods?.length>0 && <span style={{ position:"absolute", bottom:6, right:6, width:6, height:6, borderRadius:"50%", background:TYPES.legs.color }} />}
@@ -732,14 +1469,44 @@ function Calendar({ data, persist, updateDay, favProps, apiKey, customFoods, rou
           );
         })}
       </div>
-      <div style={{ display:"flex", flexWrap:"wrap", gap:8, padding:"16px 18px 0" }}>
-        {Object.values(TYPES).map((t,i)=>(<Legend key={i} color={t.color} label={t.label} />))}
-        <Legend dot color={C.amber} label="유산소" />
-        <Legend dot color={TYPES.legs.color} label="식단" />
-        <Legend dot color={STUDY_ACCENT} label="공부" />
+      {/* 날짜에 겹쳐 볼 지표 */}
+      <div style={{ display:"flex", gap:6, padding:"14px 18px 0", overflowX:"auto" }}>
+        {Object.entries(METRICS).map(([mk,m])=>(
+          <button key={mk} onClick={()=>setCalMetric(mk)}
+            style={{...chip(calMetric===mk, m.color), padding:"6px 11px", fontSize:11.5, whiteSpace:"nowrap", flexShrink:0}}>{m.label}</button>
+        ))}
+      </div>
+
+      {/* 이번 달 요약 */}
+      {monthSummary.days>0 && (
+        <div style={{ display:"flex", gap:6, padding:"12px 18px 0" }}>
+          {[["기록", `${monthSummary.days}일`, C.text],
+            ["먹은 kcal", `${monthSummary.avgIn}`, "#FF8FB0"],
+            ["소모 kcal", `${monthSummary.avgBurn}`, "#5AD1A0"],
+            ["물", `${monthSummary.avgWater}잔`, "#6BC5F0"]].map(([label,val,col])=>(
+            <div key={label} style={{ flex:1, minWidth:0, background:C.surface, border:`1px solid ${C.line}`, borderRadius:10, padding:"8px 6px", textAlign:"center" }}>
+              <div style={{ fontSize:9.5, color:C.muted, fontWeight:600 }}>{label}</div>
+              <div style={{ fontSize:14, fontWeight:800, color:col, marginTop:2 }}>{val}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 색상 안내 (접이식) */}
+      <div style={{ padding:"14px 18px 0" }}>
+        <button onClick={()=>setLegendOpen(v=>!v)} style={{ background:"none", border:"none", cursor:"pointer",
+          color:C.muted, fontSize:11, fontWeight:700, padding:0 }}>색상 안내 {legendOpen?"▴":"▾"}</button>
+        {legendOpen && (
+          <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginTop:9 }}>
+            {Object.values(TYPES).map((t,i)=>(<Legend key={i} color={t.color} label={t.label} />))}
+            <Legend dot color={C.amber} label="유산소" />
+            <Legend dot color={TYPES.legs.color} label="식단" />
+            <Legend dot color={STUDY_ACCENT} label="공부" />
+          </div>
+        )}
       </div>
       {editKey && <DayEditor dateKey={editKey} day={data.schedule[editKey]||emptyDay()} schedule={data.schedule}
-        onClose={()=>setEditKey(null)} updateDay={updateDay} favProps={favProps} apiKey={apiKey} customFoods={customFoods} routines={routines} mutate={mutate} habits={data.habits} />}
+        onClose={()=>setEditKey(null)} updateDay={updateDay} favProps={favProps} apiKey={apiKey} customFoods={customFoods} routines={routines} mutate={mutate} habits={data.habits} editorWeight={calWeight} />}
     </div>
   );
 }
@@ -784,7 +1551,7 @@ const mainLiftHistory = (schedule, name) => {
 };
 
 // ================= 날짜 편집 =================
-function DayEditor({ dateKey, day, schedule, onClose, updateDay, favProps, apiKey, customFoods, routines, mutate, habits }) {
+function DayEditor({ dateKey, day, schedule, onClose, updateDay, favProps, apiKey, customFoods, routines, mutate, habits, editorWeight }) {
   const [draft, setDraft] = useState({ ...day, parts:[...(day.parts||[])], foods:[...(day.foods||[])],
     lifts:(day.lifts||[]).map((l)=>({ ...l, sets:[...l.sets] })), cardio: day.cardio?{...day.cardio}:null,
     partSets: { ...(day.partSets||{}) }, mainLift: day.mainLift?{...day.mainLift}:null,
@@ -825,16 +1592,22 @@ function DayEditor({ dateKey, day, schedule, onClose, updateDay, favProps, apiKe
   const rmSet = (id,idx)=> setDraft((d)=>({ ...d, lifts:d.lifts.map(l=> l.id===id?{ ...l, sets:l.sets.filter((_,i)=>i!==idx) }:l) }));
 
   const save = () => { const d={ ...draft }; if(d.type!=="custom") d.parts=[]; updateDay(dateKey,d); onClose(); };
+  const [confirmClear, setConfirmClear] = useState(false);
   const clearAll = () => { updateDay(dateKey, emptyDay()); onClose(); };
 
   return (
     <div onClick={save} style={sheetBg}>
       <div onClick={(e)=>e.stopPropagation()} style={sheet}>
-        <div style={grip} />
-        <div style={{ fontSize:15, fontWeight:800, marginBottom:14 }}>{dateKey.replace(/-/g,".")}</div>
-        <div style={{ maxHeight:"70vh", overflowY:"auto", paddingRight:2 }}>
+        <div style={{ flexShrink:0 }}>
+          <div style={grip} />
+          <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginBottom:12 }}>
+            <span style={{ fontSize:15, fontWeight:800 }}>{dateKey.replace(/-/g,".")}</span>
+            <span style={{ fontSize:11, color:C.muted }}>아래로 스크롤해서 더 기록</span>
+          </div>
+        </div>
+        <div style={{ flex:1, minHeight:0, overflowY:"auto", WebkitOverflowScrolling:"touch", paddingRight:2, overscrollBehavior:"contain" }}>
 
-          <SecLabel>운동</SecLabel>
+          <SecLabel>운동 <span style={{ fontWeight:600, color:C.muted, opacity:0.8 }}>(선택 — 안 골라도 아래 부위 세트만으로 운동 기록돼요)</span></SecLabel>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
             {Object.entries(TYPES).map(([k,t])=>{ const on=draft.type===k;
               return (<button key={k} onClick={()=>setDraft({...draft, type:on?null:k})} style={{ padding:"10px 6px", borderRadius:12, cursor:"pointer", textAlign:"left",
@@ -962,6 +1735,17 @@ function DayEditor({ dateKey, day, schedule, onClose, updateDay, favProps, apiKe
             </div>
           </div>
 
+          <SecLabel>걸음수</SecLabel>
+          <div style={{ display:"flex", gap:7, alignItems:"center" }}>
+            <div style={{ flex:1, minWidth:0, display:"flex", alignItems:"center", background:C.surface2, borderRadius:10, padding:"0 12px" }}>
+              <input value={draft.steps ? String(draft.steps) : ""} onChange={(e)=>setDraft((d)=>({ ...d, steps:Math.max(0,Math.min(100000,Math.round(num(e.target.value.replace(/[^0-9]/g,""))))) }))}
+                inputMode="numeric" placeholder="0"
+                style={{ flex:1, minWidth:0, background:"none", border:"none", outline:"none", color:C.text, fontSize:17, fontWeight:800, padding:"10px 0" }} />
+              <span style={{ fontSize:12, color:C.muted, fontWeight:700 }}>보</span>
+            </div>
+            {num(draft.steps)>0 && <span style={{ fontSize:12, fontWeight:800, color:"#5AD1A0", flexShrink:0 }}>≈{stepsToKcal(draft.steps, editorWeight)}kcal</span>}
+          </div>
+
           <SecLabel>수면 · 컨디션</SecLabel>
           <SleepBlock value={draft.sleep} onChange={(v)=>setDraft({ ...draft, sleep:v })} />
           <div onClick={()=>setDraft({ ...draft, creatine:!draft.creatine })} style={{ display:"flex", alignItems:"center", gap:8,
@@ -1010,9 +1794,15 @@ function DayEditor({ dateKey, day, schedule, onClose, updateDay, favProps, apiKe
 
           <SecLabel>메모</SecLabel>
           <input value={draft.note||""} onChange={(e)=>setDraft({...draft, note:e.target.value})} placeholder="예: 컨디션 좋음" style={{...inp, width:"100%", boxSizing:"border-box"}} />
+          <div style={{ height:8 }} />
         </div>
-        <div style={{ display:"flex", gap:8, marginTop:16 }}>
-          <button onClick={clearAll} style={ghost}>비우기</button>
+        <div style={{ flexShrink:0, display:"flex", gap:8, padding:"12px 0 calc(14px + env(safe-area-inset-bottom))",
+          borderTop:`1px solid ${C.line}`, background:C.surface }}>
+          {confirmClear ? (
+            <button onClick={clearAll} style={{...ghost, color:C.danger, borderColor:tint(C.danger,0.5), whiteSpace:"nowrap"}}>정말 비울까요?</button>
+          ) : (
+            <button onClick={()=>setConfirmClear(true)} style={ghost}>비우기</button>
+          )}
           <button onClick={save} style={{...primary(TYPES.legs.color), flex:1}}>저장</button>
         </div>
       </div>
@@ -1274,7 +2064,7 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule }) {
     setQuickAdded((a)=>({ ...a, [item.name]:true }));
     setTimeout(()=>setQuickAdded((a)=>({ ...a, [item.name]:false })), 1200);
   };
-  const [cf, setCf] = useState({ name:"", cat:"기타", protein:"", carbs:"", sugar:"", fat:"", kcal:"", liquidMl:"", fixedLiquid:false });
+  const [cf, setCf] = useState({ name:"", cat:"기타", protein:"", carbs:"", sugar:"", fat:"", kcal:"", liquidMl:"", fixedLiquid:false, gramsPerServing:"" });
 
   const cats = allCategories(customFoods);
   const results = searchAllFoods(q, customFoods, cat);
@@ -1301,9 +2091,9 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule }) {
 
   const addCustomFood = () => {
     if (!cf.name.trim()) return;
-    const entry = makeCustomEntry({ name:cf.name.trim(), cat:cf.cat, protein:num(cf.protein), carbs:num(cf.carbs), sugar:num(cf.sugar), fat:num(cf.fat), kcal:num(cf.kcal), liquidMl:num(cf.liquidMl), fixedLiquid:cf.fixedLiquid });
+    const entry = makeCustomEntry({ name:cf.name.trim(), cat:cf.cat, protein:num(cf.protein), carbs:num(cf.carbs), sugar:num(cf.sugar), fat:num(cf.fat), kcal:num(cf.kcal), liquidMl:num(cf.liquidMl), fixedLiquid:cf.fixedLiquid, gramsPerServing:num(cf.gramsPerServing) });
     mutate((prev)=>({ ...prev, customFoods:[...prev.customFoods.filter(e=>e.key!==entry.key), entry] }));
-    setCf({ name:"", cat:"기타", protein:"", carbs:"", sugar:"", fat:"", kcal:"", liquidMl:"", fixedLiquid:false });
+    setCf({ name:"", cat:"기타", protein:"", carbs:"", sugar:"", fat:"", kcal:"", liquidMl:"", fixedLiquid:false, gramsPerServing:"" });
     setAddOpen(false);
   };
   const removeCustomFood = (key) => mutate((prev)=>({ ...prev, customFoods:prev.customFoods.filter(e=>e.key!==key) }));
@@ -1313,6 +2103,7 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule }) {
       aliases: Array.from(new Set([patch.key||orig.key, ...(orig.aliases||[])])) };
     if (!(patch.liquidMl>0)) delete entry.liquidMl;
     if (!(patch.liquidMl>0) || !patch.fixedLiquid) delete entry.fixedLiquid; else entry.fixedLiquid = true;
+    if (patch.gramsPerServing>0) entry.gramsPerServing = patch.gramsPerServing; else delete entry.gramsPerServing;
     mutate((prev)=>({ ...prev, customFoods:[...prev.customFoods.filter(e=>e.key!==orig.key && e.key!==entry.key), entry] }));
     setEditKey(null);
   };
@@ -1408,6 +2199,19 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule }) {
             <div style={{ display:"flex", gap:6, marginTop:8 }}>
               <LabeledInput label="지방 g" v={cf.fat} on={(v)=>setCf({...cf,fat:v})} />
               <LabeledInput label="칼로리 kcal" v={cf.kcal} on={(v)=>setCf({...cf,kcal:v})} />
+            </div>
+
+            <div style={{ fontSize:11, color:C.muted, fontWeight:700, margin:"14px 0 6px" }}>1인분 무게 <span style={{ opacity:0.7 }}>(선택 · g 단위로 먹은 양 계산할 때 사용)</span></div>
+            <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+              <LabeledInput label="1인분 = ?g" v={cf.gramsPerServing} on={(v)=>setCf({...cf,gramsPerServing:v})} />
+              <div style={{ display:"flex", gap:5 }}>
+                {[30,100,200,350].map((g)=>(
+                  <button key={g} onClick={()=>setCf({...cf, gramsPerServing:String(g)})} style={{...chip(String(g)===String(cf.gramsPerServing), TYPES.legs.color), padding:"7px 9px", fontSize:11.5}}>{g}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{ fontSize:10.5, color:C.muted, marginTop:6, lineHeight:1.5 }}>
+              위에 적은 영양성분이 <b style={{color:C.text}}>몇 g 기준</b>인지예요. 비워두면 카테고리 평균으로 어림잡아서 "≈300g" 같이 부정확하게 표시돼요.
             </div>
 
             <div style={{ fontSize:11, color:C.muted, fontWeight:700, margin:"14px 0 6px" }}>수분량 <span style={{ opacity:0.7 }}>(음료일 때만 · 물 자동 반영)</span></div>
@@ -1534,6 +2338,7 @@ function DBFoodEdit({ entry, onSave, onCancel }) {
     key: entry.key, protein:String(num(entry.protein)), carbs:String(num(entry.carbs)),
     sugar:String(num(entry.sugar)), fat:String(num(entry.fat)), kcal:String(num(entry.kcal)),
     liquidMl:String(num(entry.liquidMl)), fixedLiquid: !!entry.fixedLiquid,
+    gramsPerServing: entry.gramsPerServing ? String(entry.gramsPerServing) : "",
   });
   const F = (label, key, wide) => (
     <div style={{ flex:wide?"1 1 100%":1, minWidth:60 }}>
@@ -1551,6 +2356,23 @@ function DBFoodEdit({ entry, onSave, onCancel }) {
       </div>
       <div style={{ display:"flex", gap:6, marginTop:7 }}>
         {F("지방 g","fat")}{F("칼로리","kcal")}{F("수분 ml","liquidMl")}
+      </div>
+      <div style={{ marginTop:9, padding:"9px 11px", borderRadius:9, background:C.surface, border:`1px solid ${num(v.gramsPerServing)>0?tint(TYPES.legs.color,0.4):C.line}` }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:12, fontWeight:800, color: num(v.gramsPerServing)>0?TYPES.legs.color:C.text }}>⚖️ 1인분 무게</div>
+            <div style={{ fontSize:10, color:C.muted, marginTop:2, lineHeight:1.45 }}>
+              {num(v.gramsPerServing)>0
+                ? `위 영양성분이 ${num(v.gramsPerServing)}g 기준이에요`
+                : `미지정 — 지금은 ≈${gramsPerServing(entry)}g로 어림잡는 중`}
+            </div>
+          </div>
+          <div style={{ width:76, flexShrink:0 }}>
+            <input value={v.gramsPerServing} onChange={(ev)=>setV({...v, gramsPerServing:ev.target.value.replace(/[^0-9.]/g,"")})}
+              inputMode="decimal" placeholder="예: 25"
+              style={{...inp, width:"100%", boxSizing:"border-box", padding:"8px", fontSize:13, textAlign:"center"}} />
+          </div>
+        </div>
       </div>
       {num(v.liquidMl)>0 && (
         <div onClick={()=>setV({...v, fixedLiquid:!v.fixedLiquid})}
@@ -1570,7 +2392,7 @@ function DBFoodEdit({ entry, onSave, onCancel }) {
       </div>
       <div style={{ display:"flex", gap:8, marginTop:10 }}>
         <button onClick={onCancel} style={{...ghost, flex:1}}>취소</button>
-        <button onClick={()=>onSave({ key:v.key.trim()||entry.key, protein:num(v.protein), carbs:num(v.carbs), sugar:num(v.sugar), fat:num(v.fat), kcal:num(v.kcal), liquidMl:num(v.liquidMl), fixedLiquid:v.fixedLiquid })}
+        <button onClick={()=>onSave({ key:v.key.trim()||entry.key, protein:num(v.protein), carbs:num(v.carbs), sugar:num(v.sugar), fat:num(v.fat), kcal:num(v.kcal), liquidMl:num(v.liquidMl), fixedLiquid:v.fixedLiquid, gramsPerServing:num(v.gramsPerServing) })}
           style={{...primary(TYPES.legs.color), flex:2}}>저장</button>
       </div>
     </div>
@@ -1926,6 +2748,19 @@ function Body({ data, persist, mutate, target, latestWeight, tdee }) {
         <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
           {ACTIVITY.map((a)=>(<button key={a.k} onClick={()=>setProfile({activity:a.k})} style={{...chip(profile.activity===a.k,STUDY_ACCENT), flex:1, textAlign:"center", minWidth:0}}>{a.label}</button>))}
         </div>
+        <div style={{ fontSize:11, color:C.muted, margin:"12px 0 6px" }}>목표 <span style={{ opacity:0.7 }}>(탄단지 권장 비율이 이에 맞춰 바뀌어요)</span></div>
+        <div style={{ display:"flex", gap:6 }}>
+          {Object.values(MACRO_GOALS).map((g)=>{
+            const on = (profile.macroGoal||"lean")===g.key;
+            return (
+              <button key={g.key} onClick={()=>setProfile({macroGoal:g.key})} style={{ flex:1, minWidth:0, padding:"9px 4px", borderRadius:10, cursor:"pointer",
+                border:`1.5px solid ${on?g.color:C.line}`, background:on?tint(g.color,0.14):C.surface2, textAlign:"center" }}>
+                <div style={{ fontSize:12, fontWeight:800, color:on?g.color:C.text }}>{g.label}</div>
+                <div style={{ fontSize:9, color:C.muted, marginTop:2 }}>탄{g.carb}·단{g.protein}·지{g.fat}</div>
+              </button>
+            );
+          })}
+        </div>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:14, padding:"10px 12px", background:C.surface2, borderRadius:10 }}>
           <div><div style={{ fontSize:13, fontWeight:700 }}>목표 잉여/적자</div><div style={{ fontSize:11, color:C.muted }}>recomp 0 · 벌크 +250 · 컷 −300</div></div>
           <div style={{ display:"flex", alignItems:"center", gap:8 }}>
@@ -2058,6 +2893,71 @@ function Body({ data, persist, mutate, target, latestWeight, tdee }) {
         <button onClick={doImport} style={{...ghost, width:"100%", marginTop:8}}>가져오기 적용</button>
         {importMsg && <div style={{ fontSize:12, color: importMsg.includes("완료")?TYPES.legs.color:C.danger, marginTop:8 }}>{importMsg}</div>}
       </Card>
+    </div>
+  );
+}
+
+// ================= 탄단지 비율 =================
+// 실제 섭취 비율(칼로리 기준)을 권장 비율과 나란히 비교
+function MacroRatio({ carbs, protein, fat, goal }) {
+  const cCal = num(carbs)*4, pCal = num(protein)*4, fCal = num(fat)*9;
+  const total = cCal + pCal + fCal;
+  const has = total > 0;
+  const pctOf = (v)=> has ? Math.round(v/total*100) : 0;
+  const items = [
+    { key:"carb",    label:"탄수", short:"탄", g:num(carbs),   pct:pctOf(cCal), goal:goal.carb,    color:"#5AA9FF" },
+    { key:"protein", label:"단백", short:"단", g:num(protein), pct:pctOf(pCal), goal:goal.protein, color:TYPES.legs.color },
+    { key:"fat",     label:"지방", short:"지", g:num(fat),     pct:pctOf(fCal), goal:goal.fat,     color:"#FFB74B" },
+  ];
+  // 권장 대비 편차가 가장 큰 항목으로 한 줄 코멘트
+  const worst = has ? [...items].sort((a,b)=>Math.abs(b.pct-b.goal)-Math.abs(a.pct-a.goal))[0] : null;
+  const gap = worst ? worst.pct - worst.goal : 0;
+  const comment = !has ? "음식을 기록하면 비율이 표시돼요"
+    : Math.abs(gap) <= 5 ? `${goal.label} 권장 비율에 잘 맞아요 👍`
+    : `${worst.label}이 권장보다 ${Math.abs(gap)}%p ${gap>0?"많아요":"적어요"}`;
+
+  return (
+    <div style={{ marginTop:18 }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:9 }}>
+        <span style={{ fontSize:12, fontWeight:800, color:C.muted }}>탄단지 비율</span>
+        <span style={{ fontSize:10.5, fontWeight:700, color:goal.color, background:tint(goal.color,0.13),
+          border:`1px solid ${tint(goal.color,0.4)}`, borderRadius:999, padding:"3px 9px" }}>{goal.label} 기준</span>
+      </div>
+
+      {/* 실제 비율 통짜 바 */}
+      <div style={{ display:"flex", height:22, borderRadius:8, overflow:"hidden", background:C.surface2 }}>
+        {has ? items.map((it)=> it.pct>0 && (
+          <div key={it.key} style={{ width:`${it.pct}%`, background:it.color, display:"flex", alignItems:"center",
+            justifyContent:"center", transition:"width .35s" }}>
+            {it.pct>=12 && <span style={{ fontSize:10.5, fontWeight:800, color:"#141519" }}>{it.pct}%</span>}
+          </div>
+        )) : <div style={{ width:"100%", display:"flex", alignItems:"center", justifyContent:"center" }}>
+              <span style={{ fontSize:10.5, color:C.muted }}>기록 없음</span></div>}
+      </div>
+
+      {/* 항목별 실제 vs 권장 */}
+      <div style={{ display:"flex", gap:6, marginTop:9 }}>
+        {items.map((it)=>{
+          const d = it.pct - it.goal;
+          const ok = Math.abs(d) <= 5;
+          return (
+            <div key={it.key} style={{ flex:1, minWidth:0, background:C.surface2, borderRadius:9, padding:"8px 7px" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:4 }}>
+                <span style={{ width:7, height:7, borderRadius:"50%", background:it.color, flexShrink:0 }} />
+                <span style={{ fontSize:10.5, color:C.muted, fontWeight:600 }}>{it.label}</span>
+              </div>
+              <div style={{ fontSize:15, fontWeight:800, color:it.color, marginTop:3 }}>{it.pct}<span style={{ fontSize:10 }}>%</span></div>
+              <div style={{ fontSize:9.5, color:C.muted, marginTop:1 }}>{Math.round(it.g)}g · 권장 {it.goal}%</div>
+              {has && (
+                <div style={{ fontSize:9.5, fontWeight:800, marginTop:2, color: ok?TYPES.legs.color:C.amber }}>
+                  {ok ? "적정" : `${d>0?"▲":"▼"}${Math.abs(d)}%p`}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize:11, color: has&&Math.abs(gap)<=5?TYPES.legs.color:C.muted, marginTop:8, fontWeight:600 }}>{comment}</div>
     </div>
   );
 }
@@ -2289,16 +3189,18 @@ function Stats({ data, target, tdee, weight }) {
     const sugar = foods.reduce((s,f)=>s+num(f.sugar),0);
     const fat = foods.reduce((s,f)=>s+num(f.fat),0);
     const kcalIn = foods.reduce((s,f)=>s+num(f.kcal),0);
-    const kcalOut = e.cardio ? num(e.cardio.kcal) : 0;
+    const kcalOut = burnedKcal(e, weight);
     const net = tdee!=null ? kcalIn - tdee - kcalOut : null;
     const studyMin = (data.study||[]).filter((s)=>s.date===dk).reduce((a,s)=>a+s.minutes,0);
     const sleep = num(e.sleep?.hours);
     const water = num(e.water);
     const hasFood = foods.length>0;
-    const worked = e.type && e.type!=="rest";
+    const worked = didWorkout(e);
     const partSets = e.partSets || {};
     const mood = num(e.mood);
-    return { dk, protein, carbs, sugar, fat, kcalIn, kcalOut, net, studyMin, sleep, water, hasFood, worked, partSets, mood };
+    const cardioMin = e.cardio ? num(e.cardio.min) : 0;
+    const cardioType = e.cardio ? e.cardio.type : null;
+    return { dk, protein, carbs, sugar, fat, kcalIn, kcalOut, net, studyMin, sleep, water, hasFood, worked, partSets, mood, cardioMin, cardioType, steps:num(e.steps) };
   });
 
   // 평균/합계 (식단 기록이 있는 날 기준 평균이 공정함)
@@ -2325,13 +3227,13 @@ function Stats({ data, target, tdee, weight }) {
       const e = data.schedule[dk] || {};
       const foods = e.foods || [];
       const kcalIn = foods.reduce((s,f)=>s+num(f.kcal),0);
-      const kcalOut = e.cardio ? num(e.cardio.kcal) : 0;
+      const kcalOut = burnedKcal(e, weight);
       return {
         protein: foods.reduce((s,f)=>s+num(f.protein),0),
         net: tdee!=null ? kcalIn - tdee - kcalOut : null,
         studyMin: (data.study||[]).filter((s)=>s.date===dk).reduce((a,s)=>a+s.minutes,0),
         sleep: num(e.sleep?.hours), water: num(e.water),
-        hasFood: foods.length>0, worked: !!(e.type && e.type!=="rest"),
+        hasFood: foods.length>0, worked: didWorkout(e),
       };
     });
     const fd = pd.filter(d=>d.hasFood);
@@ -2406,14 +3308,29 @@ function Stats({ data, target, tdee, weight }) {
     : null;
 
   // 연속 기록 (현재 + 역대 최고)
-  const hasLog = (e)=> !!(e && ((e.foods&&e.foods.length)||(e.type&&e.type!=="rest")||e.sleep||e.water||(e.partSets&&Object.keys(e.partSets).length)||e.mainLift||e.creatine||e.mood||e.diary));
+  const hasLog = (e)=> !!(e && ((e.foods&&e.foods.length)||didWorkout(e)||e.sleep||e.water||e.creatine||e.mood||e.diary));
   const streaks = [
     { key:"기록", icon:"📝", color:TYPES.push.color, ...streakInfo(data.schedule, (kk)=>hasLog(data.schedule[kk])) },
     { key:"단백질 목표", icon:"🥩", color:TYPES.legs.color, ...(target ? streakInfo(data.schedule, (kk)=>(data.schedule[kk]?.foods||[]).reduce((s,f)=>s+num(f.protein),0) >= target.low) : {current:0,best:0}) },
-    { key:"운동", icon:"💪", color:TYPES.pull.color, ...streakInfo(data.schedule, (kk)=>{ const t2=data.schedule[kk]?.type; return t2 && t2!=="rest"; }) },
+    { key:"운동", icon:"💪", color:TYPES.pull.color, ...streakInfo(data.schedule, (kk)=>didWorkout(data.schedule[kk])) },
     { key:"크레아틴", icon:"💊", color:"#C9A6FF", ...streakInfo(data.schedule, (kk)=>!!data.schedule[kk]?.creatine) },
   ];
   const anyStreak = streaks.some(s=>s.best>0);
+
+  // 유산소 집계 (기간 내 세션·시간·소모 kcal + 종류별)
+  const cardioDays = perDay.filter(d=>d.cardioMin>0 || d.kcalOut>0);
+  const cardioSessions = cardioDays.length;
+  const cardioMinTotal = perDay.reduce((s,d)=>s+d.cardioMin,0);
+  const cardioKcalTotal = perDay.reduce((s,d)=>s+d.kcalOut,0);
+  const cardioAvgMin = cardioSessions ? Math.round(cardioMinTotal/cardioSessions) : 0;
+  const cardioByType = Object.keys(CARDIO).map((k)=>{
+    const ds = perDay.filter(d=>d.cardioType===k);
+    return { k, ...CARDIO[k], sessions:ds.length, min:ds.reduce((s,d)=>s+d.cardioMin,0), kcal:ds.reduce((s,d)=>s+d.kcalOut,0) };
+  }).filter(t=>t.sessions>0).sort((a,b)=>b.min-a.min);
+  const maxCardioType = Math.max(1, ...cardioByType.map(t=>t.min));
+  const cardioMaxDay = Math.max(1, ...perDay.map(d=>d.cardioMin));
+  // 주당 유산소 시간 (WHO 권장 주 150분 대비)
+  const cardioPerWeek = nDays>0 ? Math.round(cardioMinTotal/nDays*7) : 0;
 
   // 상태 판정: good(초록)/warn(노랑)/bad(빨강)/none(회색)
   const S = { good:TYPES.legs.color, warn:C.amber, bad:C.danger, none:C.muted };
@@ -2448,6 +3365,12 @@ function Stats({ data, target, tdee, weight }) {
     if (perWeek >= 3) return { s:"warn", msg:`주 ${(perWeek).toFixed(1)}회 페이스` };
     return { s:"bad", msg:`주 ${(perWeek).toFixed(1)}회 페이스` };
   };
+  const cardioStat = () => {
+    if (cardioSessions===0) return { s:"none", msg:"기록 없음" };
+    if (cardioPerWeek >= 150) return { s:"good", msg:`주 ${cardioPerWeek}분 · 권장량 달성` };
+    if (cardioPerWeek >= 75) return { s:"warn", msg:`주 ${cardioPerWeek}분 · 권장 150분` };
+    return { s:"bad", msg:`주 ${cardioPerWeek}분 · 조금 더 늘려보세요` };
+  };
   const studyStat = () => {
     if (totalStudy===0) return { s:"none", msg:"기록 없음" };
     return { s:"good", msg:`총 ${fmtMin(totalStudy)}` };
@@ -2478,6 +3401,8 @@ function Stats({ data, target, tdee, weight }) {
       series: perDay.map(d=>d.sugar), goal: mt?mt.sugar:null, goalType:"cap", unit:"g", color:"#FF8FB0" },
     { key:"workout", icon:"💪", label:"운동", value:`${workoutCount}회`, sub: range==="day"?"오늘":`${nDays}일 중`, stat:workoutStat(),
       series: perDay.map(d=>d.worked?1:0), goal:null, unit:"", color:TYPES.push.color },
+    { key:"cardio", icon:"🏃", label:"유산소", value: fmtMin(cardioMinTotal), sub: range==="day"?"오늘":`${cardioSessions}회 · ${nDays}일 중`, stat:cardioStat(),
+      series: perDay.map(d=>d.cardioMin), goal:null, unit:"분", color:C.amber },
     { key:"creatine", icon:"💊", label:"크레아틴", value:`${creatineDays}/${nDays}일`, sub:"복용일", stat:creatineStat(),
       series: perDay.map(d=> data.schedule[d.dk]?.creatine?1:0), goal:null, unit:"", color:"#C9A6FF" },
     { key:"sleep", icon:"😴", label:"수면", value: avgSleep!=null?`${avgSleep}h`:"—", sub:"하루 평균", stat:sleepStat(),
@@ -2641,6 +3566,84 @@ function Stats({ data, target, tdee, weight }) {
             {missedParts.length>0 && (
               <div style={{ marginTop:10, padding:"9px 12px", background:tint(C.amber,0.1), border:`1px solid ${tint(C.amber,0.35)}`, borderRadius:10 }}>
                 <span style={{ fontSize:11.5, color:C.amber, fontWeight:700 }}>⚠️ {rangeLabel(range)} 안 한 부위: {missedParts.join(" · ")}</span>
+              </div>
+            )}
+          </>
+        )}
+      </Card>
+
+      {/* 유산소 */}
+      <Card>
+        <Row><span style={lbl}>유산소 · {rangeLabel(range)}</span>
+          {cardioSessions>0 && <span style={{ fontSize:11.5, color:C.muted }}>{cardioSessions}회 · {fmtMin(cardioMinTotal)}</span>}
+        </Row>
+        {cardioSessions===0 ? (
+          <div style={{ color:C.muted, fontSize:12.5, marginTop:10, lineHeight:1.6 }}>
+            아직 유산소 기록이 없어요. 캘린더에서 날짜를 열고 <b style={{color:C.text}}>유산소</b>에 종류·시간을 남기면 여기에 분석이 떠요.
+          </div>
+        ) : (
+          <>
+            <div style={{ display:"flex", gap:6, marginTop:12 }}>
+              {[["총 시간", fmtMin(cardioMinTotal), C.amber],
+                ["소모 kcal", cardioKcalTotal>0?`${cardioKcalTotal}`:"—", "#FF8C42"],
+                ["회당 평균", `${cardioAvgMin}분`, "#5AD1A0"]].map(([label,val,col])=>(
+                <div key={label} style={{ flex:1, minWidth:0, background:C.surface2, borderRadius:10, padding:"10px 8px", textAlign:"center" }}>
+                  <div style={{ fontSize:10.5, color:C.muted, fontWeight:600 }}>{label}</div>
+                  <div style={{ fontSize:17, fontWeight:800, color:col, marginTop:3 }}>{val}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* 일별 시간 그래프 */}
+            {range!=="day" && (<>
+              <div style={{ fontSize:11, color:C.muted, margin:"16px 0 6px" }}>일별 유산소 시간</div>
+              <div style={{ display:"flex", alignItems:"flex-end", gap:3, height:80 }}>
+                {perDay.map((d,i)=>(
+                  <div key={d.dk} style={{ flex:1, minWidth:0, display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
+                    <div style={{ flex:1, width:"100%", display:"flex", alignItems:"flex-end" }}>
+                      <div title={`${d.cardioMin}분`} style={{ width:"100%", height:`${d.cardioMin>0?Math.max(6,Math.round(d.cardioMin/cardioMaxDay*100)):0}%`,
+                        background: d.cardioType?CARDIO[d.cardioType].color:C.line, borderRadius:"4px 4px 2px 2px", transition:"height .3s" }} />
+                    </div>
+                    {range==="week" && <span style={{ fontSize:8.5, color:C.muted, whiteSpace:"nowrap" }}>{d.dk.slice(8)}</span>}
+                  </div>
+                ))}
+              </div>
+            </>)}
+
+            {/* 종류별 */}
+            <div style={{ fontSize:11, color:C.muted, margin:"16px 0 8px" }}>종류별</div>
+            {cardioByType.map((t)=>(
+              <div key={t.k} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+                <span style={{ fontSize:11.5, fontWeight:700, width:66, flexShrink:0, color:t.color }}>{t.label}</span>
+                <div style={{ flex:1, height:14, background:C.surface2, borderRadius:99, overflow:"hidden" }}>
+                  <div style={{ width:`${Math.round(t.min/maxCardioType*100)}%`, height:"100%", borderRadius:99,
+                    background:`linear-gradient(90deg, ${tint(t.color,0.55)}, ${t.color})`, transition:"width .3s" }} />
+                </div>
+                <span style={{ fontSize:11, fontWeight:800, color:t.color, width:70, textAlign:"right", flexShrink:0 }}>
+                  {fmtMin(t.min)} · {t.sessions}회
+                </span>
+              </div>
+            ))}
+
+            {/* 주당 페이스 */}
+            {range!=="day" && (
+              <div style={{ marginTop:12, padding:"10px 12px", borderRadius:10,
+                background: cardioPerWeek>=150?tint(TYPES.legs.color,0.1):C.surface2,
+                border:`1px solid ${cardioPerWeek>=150?tint(TYPES.legs.color,0.4):C.line}` }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+                  <span style={{ fontSize:11.5, fontWeight:700, color: cardioPerWeek>=150?TYPES.legs.color:C.text }}>
+                    주당 {cardioPerWeek}분 페이스
+                  </span>
+                  <span style={{ fontSize:10.5, color:C.muted }}>권장 150분</span>
+                </div>
+                <div style={{ height:6, background:C.line, borderRadius:99, overflow:"hidden" }}>
+                  <div style={{ width:`${Math.min(100,Math.round(cardioPerWeek/150*100))}%`, height:"100%", borderRadius:99,
+                    background: cardioPerWeek>=150?TYPES.legs.color:C.amber }} />
+                </div>
+                <div style={{ fontSize:10.5, color:C.muted, marginTop:6, lineHeight:1.5 }}>
+                  {cardioPerWeek>=150 ? "유산소 권장량을 채우고 있어요 👍"
+                    : `권장까지 주 ${150-cardioPerWeek}분 더 — 벌크 중이면 이 정도가 심폐·체지방 관리에 적당해요`}
+                </div>
               </div>
             )}
           </>
@@ -2967,5 +3970,8 @@ const stepBtn = { width:28, height:28, borderRadius:8, cursor:"pointer", backgro
 const xBtn = { width:26, height:26, borderRadius:8, cursor:"pointer", background:C.surface2, border:`1px solid ${C.line}`, color:C.muted, fontSize:15, lineHeight:1, flexShrink:0 };
 const chip = (on,color) => ({ padding:"8px 12px", borderRadius:999, cursor:"pointer", fontSize:12.5, fontWeight:700, border:`1.5px solid ${on?color:C.line}`, background:on?tint(color,0.18):C.surface2, color:C.text });
 const sheetBg = { position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:50 };
-const sheet = { background:C.surface, width:"100%", maxWidth:460, borderTopLeftRadius:22, borderTopRightRadius:22, padding:"18px 18px 26px", border:`1px solid ${C.line}`, borderBottom:"none" };
+// 모바일 주소창을 감안해 dvh 사용. 헤더/푸터는 고정하고 가운데만 스크롤되도록 flex 컬럼 구성
+const sheet = { background:C.surface, width:"100%", maxWidth:460, borderTopLeftRadius:22, borderTopRightRadius:22,
+  padding:"14px 18px 0", border:`1px solid ${C.line}`, borderBottom:"none",
+  maxHeight:"92dvh", display:"flex", flexDirection:"column", boxSizing:"border-box" };
 const grip = { width:38, height:4, borderRadius:2, background:C.line, margin:"0 auto 16px" };
