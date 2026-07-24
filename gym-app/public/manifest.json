@@ -1,7 +1,8 @@
 {
   "name": "린메스업 트래커",
   "short_name": "린메스업",
-  "start_url": "/",
+  "start_url": "/Calender/",
+  "scope": "/Calender/",
   "display": "standalone",
   "background_color": "#141519",
   "theme_color": "#141519",
