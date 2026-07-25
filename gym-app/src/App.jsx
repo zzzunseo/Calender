@@ -268,6 +268,7 @@ const normalize = (d) => ({
   plans: d.plans || {},   // { "YYYY-MM-DD": [{id,title,start,end,alarm,note}] }
   vocab: d.vocab || [],   // 단어장: [{id,type,term,meaning,note,tag,level,lastReview,reviewCount,created}]
   targetScore: d.targetScore || {},  // { "토익": 800 }
+  weekGoals: d.weekGoals || {},      // { workouts: 4, sets: 80 }
 });
 
 const NUTRI_PROMPT = `아래는 사용자가 먹은 음식/보충제(프로틴 쉐이크 등) 설명이야.
@@ -343,6 +344,115 @@ const MACRO_GOALS = {
   lean:  { key:"lean",  label:"린매스업", desc:"근육 위주로 천천히", carb:45, protein:30, fat:25, color:"#B6E34B" },
   bulk:  { key:"bulk",  label:"벌크업",   desc:"체중 증량 우선",     carb:50, protein:25, fat:25, color:"#FF8C42" },
   cut:   { key:"cut",   label:"다이어트", desc:"체지방 감량",        carb:35, protein:40, fat:25, color:"#35C4D8" },
+};
+
+// ===== 체성분 분석 (전부 로컬 공식 — API 불필요) =====
+const rd1 = (v)=> Math.round(num(v)*10)/10;
+// 측정 한 건에서 체지방량·제지방량 계산
+const bodyComp = (m) => {
+  if (!m || !num(m.weight)) return null;
+  const w = num(m.weight);
+  const bf = (m.fat!=null && num(m.fat)>0) ? num(m.fat) : null;
+  const muscle = (m.muscle!=null && num(m.muscle)>0) ? num(m.muscle) : null;
+  if (bf==null) return { date:m.date, weight:w, bf:null, fatKg:null, lbm:null, muscle };
+  const fatKg = w*bf/100;
+  return { date:m.date, weight:w, bf, fatKg:rd1(fatKg), lbm:rd1(w-fatKg), muscle };
+};
+// 제지방량을 유지한다고 볼 때, 목표 체지방률에서의 체중
+const weightAtBF = (lbm, targetBF) => {
+  const t = num(targetBF);
+  if (!num(lbm) || t<=0 || t>=60) return null;
+  return rd1(num(lbm) / (1 - t/100));
+};
+// 체지방률 구간 — 남성/여성 기준이 다르다
+const BF_ZONES = {
+  m: [
+    { max:8,  key:"매우 낮음", color:"#6BA8FF", advice:"벌크에 아주 유리한 구간이에요. 잉여 칼로리를 조금 더 줘도 괜찮아요." },
+    { max:15, key:"이상적",    color:"#B6E34B", advice:"린매스업에 가장 좋은 구간이에요. 지금 속도를 유지해보세요." },
+    { max:20, key:"보통",      color:"#FFC24B", advice:"벌크를 이어가도 되지만, 여기서 더 오르면 컷이 길어져요. 잉여를 줄여보세요." },
+    { max:25, key:"높음",      color:"#FF8C42", advice:"벌크보다 체지방을 먼저 줄이는 게 나아요. 유지 칼로리 근처로 낮춰보세요." },
+    { max:99, key:"매우 높음", color:"#FF6B6B", advice:"먼저 감량 구간을 갖는 걸 권해요. 근육은 약간의 적자에서도 유지돼요." },
+  ],
+  f: [
+    { max:16, key:"매우 낮음", color:"#6BA8FF", advice:"벌크에 유리하지만 너무 낮으면 호르몬·컨디션에 부담이 돼요." },
+    { max:23, key:"이상적",    color:"#B6E34B", advice:"린매스업에 가장 좋은 구간이에요. 지금 속도를 유지해보세요." },
+    { max:28, key:"보통",      color:"#FFC24B", advice:"벌크를 이어가도 되지만, 잉여를 조금 줄이면 더 깔끔해요." },
+    { max:33, key:"높음",      color:"#FF8C42", advice:"체지방을 먼저 줄이는 편이 이후 벌크에 유리해요." },
+    { max:99, key:"매우 높음", color:"#FF6B6B", advice:"먼저 감량 구간을 갖는 걸 권해요." },
+  ],
+};
+const bfZone = (bf, sex) => {
+  if (bf==null) return null;
+  const table = BF_ZONES[sex==="f" ? "f" : "m"];
+  return table.find(z => num(bf) <= z.max) || table[table.length-1];
+};
+// 린매스업 권장 증량 속도: 주당 체중의 0.25~0.5%
+const leanGainRange = (weight) => {
+  const w = num(weight);
+  if (!w) return null;
+  return { low: rd1(w*0.0025), high: rd1(w*0.005) };
+};
+// 두 측정 사이의 변화를 나눠 본다 — 늘어난 게 근육인지 지방인지
+const compTrend = (first, last) => {
+  const a = bodyComp(first), b = bodyComp(last);
+  if (!a || !b) return null;
+  const days = (new Date(b.date+"T00:00:00") - new Date(a.date+"T00:00:00")) / 86400000;
+  if (days < 7) return { tooShort:true, days };
+  const dW = rd1(b.weight - a.weight);
+  const perWeek = rd1(dW / days * 7);
+  if (a.lbm==null || b.lbm==null) return { days, dW, perWeek, partial:true };
+  const dLbm = rd1(b.lbm - a.lbm);
+  const dFat = rd1(b.fatKg - a.fatKg);
+  // 늘어난 체중 중 제지방 비율 (근육으로 간 비율)
+  const gain = dLbm + dFat;
+  const lbmShare = Math.abs(gain) > 0.2 ? Math.round(dLbm/gain*100) : null;
+  return { days, dW, perWeek, dLbm, dFat, lbmShare, dBf: rd1(b.bf - a.bf) };
+};
+// 추세를 보고 한 줄 방향 제시
+const bulkVerdict = (trend, weight) => {
+  if (!trend || trend.tooShort || trend.partial) return null;
+  const range = leanGainRange(weight);
+  const hi = range ? range.high : 0.4, lo = range ? range.low : 0.2;
+  const { dLbm, dFat, perWeek } = trend;
+
+  // 판정 순서가 결과를 좌우하므로, 좁은 조건부터 확인한다
+  // 1) 근육 늘고 지방 줄었다 — 가장 좋은 경우 (리컴프)
+  if (dLbm > 0.2 && dFat < -0.2)
+    return { tone:"good", title:"근육은 늘고 체지방은 줄었어요",
+      msg:"가장 좋은 흐름이에요. 지금 칼로리·단백질·훈련을 그대로 유지하세요." };
+  // 2) 거의 변화 없음 = 정체
+  if (Math.abs(perWeek) < 0.05 && Math.abs(dLbm) < 0.3 && Math.abs(dFat) < 0.3)
+    return { tone:"warn", title:"체중이 정체 중이에요",
+      msg:`린매스업이라면 주 ${lo}~${hi}kg 증량이 목표예요. 잉여 칼로리를 100~200kcal 올려보세요.` };
+  // 3) 지방만 늘었다
+  if (dFat > 0.3 && dLbm <= 0.1)
+    return { tone:"bad", title:"체지방만 늘고 있어요",
+      msg:"잉여 칼로리를 200kcal 정도 줄이고, 단백질 섭취와 훈련 볼륨을 먼저 점검해보세요." };
+  // 4) 제지방이 줄었다
+  if (dLbm < -0.3)
+    return { tone:"warn", title:"제지방(근육)이 줄었어요",
+      msg:"칼로리나 단백질이 모자랄 수 있어요. 잉여를 조금 올리고 단백질을 체중×2g까지 맞춰보세요." };
+  // 5) 늘긴 했지만 지방이 더 많이
+  if (dLbm > 0 && dFat > dLbm)
+    return { tone:"warn", title:"증량이 조금 빨라요",
+      msg:`근육보다 체지방이 더 늘었어요. 주 증량을 ${hi}kg 이하로 낮추면 더 깔끔해져요.` };
+  // 6) 근육 위주로 늘었다
+  if (dLbm > 0.2 && dFat <= 0.2)
+    return { tone:"good", title:"이상적인 린매스업이에요",
+      msg:"근육은 늘고 체지방은 거의 그대로예요. 지금 페이스를 유지하세요." };
+  // 7) 근육 위주로 늘되 지방도 조금 (린매스업에서 가장 흔한 정상 흐름)
+  if (dLbm > 0.2 && dFat > 0.2 && dLbm > dFat) {
+    const share = trend.lbmShare;
+    return { tone:"good", title:"근육 위주로 늘고 있어요",
+      msg: (share!=null ? `늘어난 체중의 약 ${Math.min(100,share)}%가 제지방이에요. ` : "")
+        + (perWeek > hi ? `다만 주 ${perWeek}kg는 조금 빨라요 — ${hi}kg 이하로 낮추면 체지방을 덜 붙일 수 있어요.`
+                        : "지금 칼로리·훈련을 그대로 유지하세요.") };
+  }
+  // 8) 증량 속도가 권장보다 빠름
+  if (perWeek > hi)
+    return { tone:"warn", title:"증량 속도가 권장보다 빨라요",
+      msg:`주 ${perWeek}kg 늘고 있어요. ${lo}~${hi}kg 사이가 체지방을 덜 붙이면서 늘리는 구간이에요.` };
+  return { tone:"good", title:"방향은 괜찮아요", msg:"측정을 몇 번 더 쌓으면 더 정확하게 볼 수 있어요." };
 };
 
 const macroTargets = (tdee, surplus, weight, proteinG) => {
@@ -1052,6 +1162,9 @@ function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps,
           </>) : null;
         })()}
       </Card>
+
+      {/* 회복 상태 + 주간 운동 목표 */}
+      <RecoveryCard schedule={data.schedule} weekGoals={data.weekGoals} mutate={mutate} days={days} />
 
       {/* 컨디션 · 습관 · 일기 (접이식 묶음) — 하루 한 번만 쓰는 것들 */}
       <Collapsible title="컨디션 · 습관 · 일기" accent={SLEEP_ACCENT}
@@ -2177,6 +2290,74 @@ const allTimeMaxW = (schedule, name, beforeKey) => {
 };
 
 // 대표운동(mainLift) 이름별 날짜순 무게 추이 (최근 10개)
+// ===== 회복 상태 (로컬 판단) =====
+// 벌크 중엔 과훈련이 쉬워서, 연속 운동일·수면·볼륨을 함께 본다.
+const recoveryState = (schedule, weightAvgSleep) => {
+  const t = new Date(); t.setHours(0,0,0,0);
+  // 오늘부터 거꾸로 연속 운동일
+  let streak = 0;
+  for (let i=0; i<21; i++) {
+    const d = new Date(t); d.setDate(t.getDate()-i);
+    const kk = keyOf(d.getFullYear(), d.getMonth(), d.getDate());
+    if (didWorkout(schedule[kk])) streak++;
+    else break;
+  }
+  // 최근 7일 볼륨·수면
+  const days = lastNDays(7);
+  const sets = days.reduce((sm,kk)=> sm + partBreakdown(schedule[kk]?.partSets).total, 0);
+  const sleeps = days.map(kk=>num(schedule[kk]?.sleep?.hours)).filter(v=>v>0);
+  const avgSleep = sleeps.length ? rd1(sleeps.reduce((a,b)=>a+b,0)/sleeps.length) : null;
+  const restDays = days.filter(kk=> !didWorkout(schedule[kk])).length;
+
+  const flags = [];
+  if (streak >= 6) flags.push({ tone:"bad", msg:`${streak}일 연속 운동했어요. 하루 쉬면 오히려 더 크게 성장해요.` });
+  else if (streak === 5) flags.push({ tone:"warn", msg:"5일 연속이에요. 곧 하루 쉬어주는 게 좋아요." });
+  if (avgSleep!=null && avgSleep < 6.5) flags.push({ tone:"bad", msg:`최근 수면이 평균 ${avgSleep}시간이에요. 근성장은 잘 때 일어나요.` });
+  else if (avgSleep!=null && avgSleep < 7) flags.push({ tone:"warn", msg:`수면 평균 ${avgSleep}시간 — 7시간 이상이면 회복이 확실히 좋아져요.` });
+  if (restDays === 0) flags.push({ tone:"warn", msg:"최근 7일 동안 쉬는 날이 없었어요." });
+  if (sets > 0 && sets < 30 && restDays >= 5) flags.push({ tone:"warn", msg:"이번 주 볼륨이 적어요. 주 10~20세트/부위가 성장 구간이에요." });
+
+  const level = flags.some(f=>f.tone==="bad") ? "bad" : flags.length ? "warn" : "good";
+  return { streak, sets, avgSleep, restDays, flags, level };
+};
+
+// ===== 중량 성장 추적 (로컬 계산) =====
+// 1RM 추정 — Epley 공식. 8회 이하에서 비교적 정확하다.
+const est1RM = (w, r) => {
+  const W = num(w), R = num(r);
+  if (W<=0 || R<=0) return null;
+  if (R === 1) return rd1(W);
+  return rd1(W * (1 + R/30));
+};
+// 종목별 기록 모음 — 최고 중량·최고 1RM·최근값·PR 날짜
+const liftStats = (schedule) => {
+  const byName = {};
+  for (const kk of Object.keys(schedule||{})) {
+    const ml = schedule[kk]?.mainLift;
+    if (!ml || !ml.name || num(ml.w) <= 0) continue;
+    const name = String(ml.name).trim();
+    const w = num(ml.w), r = num(ml.r) || 1;
+    const e1 = est1RM(w, r);
+    byName[name] = byName[name] || { name, sessions: [] };
+    byName[name].sessions.push({ date: kk, w, r, e1 });
+  }
+  const t = new Date(); t.setHours(0,0,0,0);
+  return Object.values(byName).map((g)=>{
+    g.sessions.sort((a,b)=> a.date.localeCompare(b.date));
+    const last = g.sessions[g.sessions.length-1];
+    const bestW  = g.sessions.reduce((m,x)=> x.w  > m.w  ? x : m, g.sessions[0]);
+    const best1  = g.sessions.reduce((m,x)=> (x.e1||0) > (m.e1||0) ? x : m, g.sessions[0]);
+    const first = g.sessions[0];
+    const daysAgo = Math.round((t - new Date(last.date+"T00:00:00"))/86400000);
+    return {
+      name: g.name, count: g.sessions.length, sessions: g.sessions,
+      last, bestW, best1, first, daysAgo,
+      gain: rd1(last.w - first.w),                  // 처음 대비 중량 변화
+      isPR: last.w >= bestW.w && g.sessions.length >= 2,  // 최근이 최고 중량인가
+    };
+  }).sort((a,b)=> a.daysAgo - b.daysAgo || b.count - a.count);
+};
+
 const mainLiftHistory = (schedule, name) => {
   const keys = Object.keys(schedule).filter((kk)=> schedule[kk].mainLift?.name===name && num(schedule[kk].mainLift.w)>0).sort();
   return keys.slice(-10).map((kk)=>({ label: kk.slice(5).replace("-","."), value: num(schedule[kk].mainLift.w) }));
@@ -4320,19 +4501,8 @@ function Body({ data, persist, mutate, target, latestWeight, tdee }) {
         </div>
       </Card>
 
-      {/* API 키 설정 (AI 계산·추천 기능용) */}
-      <Card>
-        <Row><span style={lbl}>API 키 설정</span></Row>
-        <div style={{ fontSize:11.5, color:C.muted, marginTop:6, lineHeight:1.5 }}>
-          자주 먹는 음식·유명 프랜차이즈는 <b style={{color:C.text}}>API 키 없이도 무료로 즉시</b> 계산돼요(음식 탭에서 검색·등록 가능).
-          목록에 없는 음식이나 더 정교한 외식 추천을 원하면 본인의 Anthropic API 키를 넣으면 돼요.
-          <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer" style={{ color:TYPES.push.color, marginLeft:4 }}>여기서 발급</a>
-        </div>
-        <ApiKeyInput value={profile.apiKey} onSave={(v)=>setProfile({apiKey:v})} />
-        <div style={{ fontSize:10.5, color:C.muted, marginTop:8, lineHeight:1.5 }}>
-          이 키는 이 브라우저에만 저장되고, 입력하면 사용한 만큼만 요금이 나가요. 키가 없어도 로컬 목록 + 직접 입력으로 대부분의 기록이 가능해요.
-        </div>
-      </Card>
+      {/* 체성분 분석 + 방향 제시 */}
+      <BodyCompCard sorted={sorted} profile={profile} />
 
       {/* 목표 */}
       <Card>
@@ -4456,7 +4626,364 @@ function Body({ data, persist, mutate, target, latestWeight, tdee }) {
         <button onClick={doImport} style={{...ghost, width:"100%", marginTop:8}}>가져오기 적용</button>
         {importMsg && <div style={{ fontSize:12, color: importMsg.includes("완료")?TYPES.legs.color:C.danger, marginTop:8, lineHeight:1.55 }}>{importMsg}</div>}
       </Card>
+
+      {/* API 키 — 없어도 대부분 쓸 수 있으니 맨 아래에 접어둔다 */}
+      <Collapsible title="AI 기능 · API 키" accent={TYPES.push.color}
+        summary={profile.apiKey ? "연결됨" : "선택 사항"}>
+        <Card>
+          <div style={{ fontSize:11.5, color:C.muted, lineHeight:1.6 }}>
+            자주 먹는 음식·유명 프랜차이즈는 <b style={{color:C.text}}>키 없이도 무료로 즉시</b> 계산돼요.
+            목록에 없는 음식을 자동으로 채우거나, 단어장 AI 채우기를 쓰려면 본인의 Anthropic API 키를 넣으면 돼요.
+            <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer" style={{ color:TYPES.push.color, marginLeft:4 }}>여기서 발급</a>
+          </div>
+          <ApiKeyInput value={profile.apiKey} onSave={(v)=>setProfile({apiKey:v})} />
+          <div style={{ fontSize:10.5, color:C.muted, marginTop:8, lineHeight:1.5 }}>
+            키는 이 브라우저에만 저장되고, 쓴 만큼만 요금이 나가요.
+          </div>
+        </Card>
+      </Collapsible>
     </div>
+  );
+}
+
+// ================= 회복 · 주간 운동 목표 =================
+// 벌크 중엔 "더 많이"보다 "회복되는 만큼"이 중요해서, 경고와 목표를 함께 둔다.
+function RecoveryCard({ schedule, weekGoals, mutate, days }) {
+  const rec = recoveryState(schedule);
+  const goalW = num(weekGoals?.workouts);
+  const goalS = num(weekGoals?.sets);
+  const doneW = days.filter(kk=>didWorkout(schedule[kk])).length;
+  const doneS = days.reduce((sm,kk)=> sm + partBreakdown(schedule[kk]?.partSets).total, 0);
+  const setGoal = (patch)=> mutate((prev)=>({ ...prev, weekGoals:{ ...(prev.weekGoals||{}), ...patch } }));
+  const toneColor = { good:TYPES.legs.color, warn:C.amber, bad:C.danger };
+
+  const bars = [
+    { key:"workouts", label:"운동 횟수", done:doneW, goal:goalW, unit:"회", color:TYPES.push.color,
+      onSet:(v)=>setGoal({ workouts: Math.max(0, Math.min(7, Math.round(num(v)))) }) },
+    { key:"sets", label:"총 세트", done:doneS, goal:goalS, unit:"세트", color:TYPES.pull.color,
+      onSet:(v)=>setGoal({ sets: Math.max(0, Math.min(500, Math.round(num(v)))) }) },
+  ];
+
+  return (
+    <Card>
+      <Row><span style={lbl}>회복 · 주간 목표</span>
+        <span style={{ fontSize:11, fontWeight:800, color:toneColor[rec.level] }}>
+          {rec.level==="good" ? "회복 양호" : rec.level==="warn" ? "주의" : "휴식 필요"}
+        </span>
+      </Row>
+
+      {/* 주간 목표 진행 */}
+      <div style={{ marginTop:12 }}>
+        {bars.map((b)=>{
+          const pct = b.goal>0 ? Math.min(100, Math.round(b.done/b.goal*100)) : 0;
+          const hit = b.goal>0 && b.done>=b.goal;
+          return (
+            <div key={b.key} style={{ marginBottom:11 }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:5 }}>
+                <span style={{ fontSize:12, fontWeight:700 }}>{b.label}</span>
+                <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:11.5, color:C.muted }}>
+                  <b style={{ color: hit?TYPES.legs.color:b.color, fontSize:14 }}>{b.done}</b>
+                  <span>/</span>
+                  <input value={b.goal||""} onChange={(e)=>b.onSet(e.target.value.replace(/[^0-9]/g,""))}
+                    inputMode="numeric" placeholder="목표"
+                    style={{...inp, width:44, padding:"4px 5px", textAlign:"center", fontSize:12}} />
+                  <span>{b.unit}</span>
+                </div>
+              </div>
+              {b.goal>0 && (
+                <div style={{ height:6, background:C.surface2, borderRadius:99, overflow:"hidden" }}>
+                  <div style={{ width:`${pct}%`, height:"100%", borderRadius:99,
+                    background: hit?TYPES.legs.color:b.color, transition:"width .3s" }} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {(!goalW && !goalS) && (
+          <div style={{ fontSize:10.5, color:C.muted, lineHeight:1.5, marginTop:-4 }}>
+            목표 칸에 숫자를 넣으면 이번 주 진행률이 보여요. 린매스업이면 주 4회 · 부위당 10~20세트가 기준이에요.
+          </div>
+        )}
+      </div>
+
+      <div style={{ height:1, background:C.line, margin:"12px 0" }} />
+
+      {/* 회복 지표 */}
+      <div style={{ display:"flex", gap:6 }}>
+        {[["연속 운동", `${rec.streak}일`, rec.streak>=6?C.danger:rec.streak>=5?C.amber:C.text],
+          ["7일 휴식", `${rec.restDays}일`, rec.restDays===0?C.amber:C.text],
+          ["평균 수면", rec.avgSleep!=null?`${rec.avgSleep}h`:"—", rec.avgSleep!=null&&rec.avgSleep<6.5?C.danger:rec.avgSleep!=null&&rec.avgSleep<7?C.amber:C.text]].map(([label,v,col])=>(
+          <div key={label} style={{ flex:1, background:C.surface2, borderRadius:10, padding:"9px 6px", textAlign:"center" }}>
+            <div style={{ fontSize:9.5, color:C.muted, fontWeight:600 }}>{label}</div>
+            <div style={{ fontSize:15, fontWeight:800, color:col, marginTop:2 }}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* 경고 */}
+      {rec.flags.length>0 ? (
+        <div style={{ marginTop:11, display:"flex", flexDirection:"column", gap:7 }}>
+          {rec.flags.map((f,i)=>(
+            <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", padding:"10px 12px", borderRadius:10,
+              background:tint(toneColor[f.tone],0.09), border:`1px solid ${tint(toneColor[f.tone],0.32)}` }}>
+              <span style={{ fontSize:13, lineHeight:1.35, flexShrink:0 }}>{f.tone==="bad"?"⚠️":"⚡"}</span>
+              <span style={{ fontSize:11.5, color:toneColor[f.tone], fontWeight:700, lineHeight:1.6 }}>{f.msg}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ fontSize:11.5, color:TYPES.legs.color, fontWeight:600, marginTop:11 }}>
+          ✓ 연속 운동일·수면·휴식이 모두 괜찮아요. 지금 페이스를 유지하세요.
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ================= 중량 성장 =================
+// 체중이 늘 때 그게 근육인지 판단하려면 "같은 종목을 더 무겁게 드는가"가 근거가 된다.
+function LiftProgressCard({ schedule }) {
+  const stats = liftStats(schedule);
+  const [pick, setPick] = useState(null);
+  if (stats.length === 0) {
+    return (
+      <Card>
+        <Row><span style={lbl}>중량 성장</span></Row>
+        <div style={{ fontSize:12.5, color:C.muted, marginTop:10, lineHeight:1.7 }}>
+          오늘 탭 <b style={{color:C.text}}>퀵 운동 기록</b>의 "오늘의 대표운동"에 종목·무게·횟수를 남기면
+          여기서 <b style={{color:C.text}}>중량 추이와 최고 기록</b>을 볼 수 있어요.
+          <div style={{ fontSize:11, marginTop:6 }}>체중이 늘 때 근육이 늘고 있는지 판단하는 가장 확실한 근거예요.</div>
+        </div>
+      </Card>
+    );
+  }
+  const sel = stats.find(x=>x.name===pick) || stats[0];
+  const hist = sel.sessions.slice(-10).map(x=>({ label:x.date.slice(5).replace("-","."), value:x.w }));
+  const prs = stats.filter(x=>x.isPR && x.daysAgo<=14);
+
+  return (
+    <Card>
+      <Row><span style={lbl}>중량 성장</span>
+        <span style={{ fontSize:11, color:C.muted }}>{stats.length}개 종목</span>
+      </Row>
+
+      {/* 최근 최고 기록 갱신 */}
+      {prs.length>0 && (
+        <div style={{ marginTop:11, padding:"11px 12px", borderRadius:10,
+          background:tint(TYPES.legs.color,0.1), border:`1px solid ${tint(TYPES.legs.color,0.4)}` }}>
+          <div style={{ fontSize:12, fontWeight:800, color:TYPES.legs.color }}>🏆 최근 최고 기록</div>
+          <div style={{ fontSize:11.5, color:C.muted, marginTop:4, lineHeight:1.6 }}>
+            {prs.slice(0,3).map(x=>`${x.name} ${x.bestW.w}kg`).join(" · ")}
+            {prs.length>3?` 외 ${prs.length-3}개`:""}
+          </div>
+        </div>
+      )}
+
+      {/* 종목 선택 */}
+      {stats.length>1 && (
+        <div style={{ display:"flex", gap:5, marginTop:11, overflowX:"auto" }}>
+          {stats.map((x)=>(
+            <button key={x.name} onClick={()=>setPick(x.name)}
+              style={{...chip(sel.name===x.name, TYPES.push.color), padding:"5px 11px", fontSize:11.5, whiteSpace:"nowrap", flexShrink:0}}>
+              {x.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* 선택 종목 요약 */}
+      <div style={{ display:"flex", gap:6, marginTop:12 }}>
+        {[["최근", `${sel.last.w}`, `kg×${sel.last.r||1}`, C.text],
+          ["최고 중량", `${sel.bestW.w}`, "kg", TYPES.push.color],
+          ["추정 1RM", sel.best1.e1!=null?`${sel.best1.e1}`:"—", "kg", TYPES.pull.color]].map(([label,v,unit,col])=>(
+          <div key={label} style={{ flex:1, minWidth:0, background:C.surface2, borderRadius:10, padding:"9px 6px", textAlign:"center" }}>
+            <div style={{ fontSize:9.5, color:C.muted, fontWeight:600 }}>{label}</div>
+            <div style={{ fontSize:16, fontWeight:800, color:col, marginTop:2 }}>{v}<span style={{ fontSize:9, color:C.muted }}>{unit}</span></div>
+          </div>
+        ))}
+      </div>
+
+      {sel.count>=2 && (
+        <div style={{ fontSize:11, color:C.muted, marginTop:8, lineHeight:1.55 }}>
+          처음 기록({sel.first.date.slice(5).replace("-",".")} {sel.first.w}kg) 대비{" "}
+          <b style={{ color: sel.gain>0?TYPES.legs.color : sel.gain<0?C.danger:C.muted }}>
+            {sel.gain>0?"+":""}{sel.gain}kg
+          </b>
+          {" · "}{sel.count}회 기록 · 마지막 {sel.daysAgo===0?"오늘":`${sel.daysAgo}일 전`}
+        </div>
+      )}
+
+      {hist.length>=2 ? (
+        <div style={{ marginTop:10 }}>
+          <LineChart points={hist} color={TYPES.push.color} unit="kg" />
+        </div>
+      ) : (
+        <div style={{ fontSize:11.5, color:C.muted, marginTop:10 }}>
+          같은 종목을 2회 이상 기록하면 추이 그래프가 나와요.
+        </div>
+      )}
+
+      <div style={{ fontSize:10, color:C.muted, marginTop:10, lineHeight:1.5, opacity:0.8 }}>
+        추정 1RM은 Epley 공식(무게×(1+횟수÷30))이에요. 8회 이하에서 비교적 정확해요.
+      </div>
+    </Card>
+  );
+}
+
+// ================= 체성분 분석 =================
+// 체중만 보면 근육이 늘었는지 알 수 없어서, 체지방률과 함께 분해해 방향을 제시한다.
+function BodyCompCard({ sorted, profile }) {
+  const [range, setRange] = useState(8); // 비교 기간(주)
+  const withBf = sorted.filter(m => num(m.fat) > 0);
+  const latest = sorted.length ? sorted[sorted.length-1] : null;
+  const cur = bodyComp(latest);
+
+  if (!cur) return null;
+  const zone = bfZone(cur.bf, profile.sex);
+  const goalBF = num(profile.goalFat);
+  const targetW = (cur.lbm!=null && goalBF>0) ? weightAtBF(cur.lbm, goalBF) : null;
+  const toLose = targetW!=null ? rd1(cur.weight - targetW) : null;
+  const gainRange = leanGainRange(cur.weight);
+
+  // 선택한 기간 안에서 가장 오래된 체지방 측정과 최신을 비교
+  const cutoff = (()=>{ const d=new Date(); d.setDate(d.getDate()-range*7); return keyOf(d.getFullYear(),d.getMonth(),d.getDate()); })();
+  const inRange = withBf.filter(m => m.date >= cutoff);
+  const base = inRange.length>=2 ? inRange[0] : (withBf.length>=2 ? withBf[withBf.length-2] : null);
+  const trend = (base && withBf.length>=2) ? compTrend(base, withBf[withBf.length-1]) : null;
+  const verdict = bulkVerdict(trend, cur.weight);
+  const toneColor = { good:TYPES.legs.color, warn:C.amber, bad:C.danger };
+
+  return (
+    <Card>
+      <Row><span style={lbl}>체성분 분석</span>
+        {cur.bf!=null && zone && (
+          <span style={{ fontSize:11, fontWeight:800, color:zone.color, background:tint(zone.color,0.14),
+            border:`1px solid ${tint(zone.color,0.4)}`, borderRadius:999, padding:"3px 10px" }}>{zone.key}</span>
+        )}
+      </Row>
+
+      {cur.bf==null ? (
+        <div style={{ fontSize:12.5, color:C.muted, marginTop:10, lineHeight:1.7 }}>
+          체중만 있으면 늘어난 게 <b style={{color:C.text}}>근육인지 체지방인지</b> 알 수 없어요.
+          아래 측정 추가에서 <b style={{color:C.text}}>체지방률</b>을 같이 넣으면 방향까지 알려드려요.
+          <div style={{ fontSize:11, marginTop:7 }}>인바디·가정용 체성분계 값이면 충분해요.</div>
+        </div>
+      ) : (<>
+        {/* 현재 구성 */}
+        <div style={{ display:"flex", gap:6, marginTop:12 }}>
+          {[["체중", `${cur.weight}`, "kg", C.text],
+            ["체지방", `${cur.bf}`, "%", zone?zone.color:C.muted],
+            ["체지방량", `${cur.fatKg}`, "kg", "#FF8C42"],
+            ["제지방량", `${cur.lbm}`, "kg", TYPES.legs.color]].map(([label,v,unit,col])=>(
+            <div key={label} style={{ flex:1, minWidth:0, background:C.surface2, borderRadius:10, padding:"9px 6px", textAlign:"center" }}>
+              <div style={{ fontSize:9.5, color:C.muted, fontWeight:600 }}>{label}</div>
+              <div style={{ fontSize:15, fontWeight:800, color:col, marginTop:2 }}>{v}<span style={{ fontSize:9, color:C.muted }}>{unit}</span></div>
+            </div>
+          ))}
+        </div>
+        {/* 체지방 : 제지방 비율 막대 */}
+        <div style={{ display:"flex", height:9, borderRadius:99, overflow:"hidden", marginTop:9 }}>
+          <div style={{ width:`${100-cur.bf}%`, background:TYPES.legs.color }} />
+          <div style={{ width:`${cur.bf}%`, background:"#FF8C42" }} />
+        </div>
+        <div style={{ display:"flex", justifyContent:"space-between", marginTop:5 }}>
+          <span style={{ fontSize:9.5, color:TYPES.legs.color, fontWeight:700 }}>제지방 {100-cur.bf}%</span>
+          <span style={{ fontSize:9.5, color:"#FF8C42", fontWeight:700 }}>체지방 {cur.bf}%</span>
+        </div>
+        {cur.muscle!=null && (
+          <div style={{ fontSize:10.5, color:C.muted, marginTop:7 }}>입력한 골격근량 {cur.muscle}kg · 제지방량에는 뼈·수분도 포함돼요</div>
+        )}
+
+        {/* 구간 조언 */}
+        {zone && (
+          <div style={{ marginTop:12, padding:"11px 12px", borderRadius:10,
+            background:tint(zone.color,0.09), border:`1px solid ${tint(zone.color,0.32)}` }}>
+            <div style={{ fontSize:12, fontWeight:800, color:zone.color }}>
+              체지방 {cur.bf}% · {zone.key} 구간
+            </div>
+            <div style={{ fontSize:11.5, color:C.muted, marginTop:4, lineHeight:1.6 }}>{zone.advice}</div>
+          </div>
+        )}
+
+        {/* 목표 체지방률까지 */}
+        {targetW!=null ? (
+          <div style={{ marginTop:10, padding:"11px 12px", borderRadius:10, background:C.surface2 }}>
+            <div style={{ fontSize:11.5, color:C.muted, fontWeight:700, marginBottom:6 }}>목표 체지방 {goalBF}%까지</div>
+            {toLose > 0.2 ? (
+              <div style={{ fontSize:12.5, lineHeight:1.7 }}>
+                지금 근육을 <b style={{color:C.text}}>그대로 유지</b>하면서 체지방만 줄이면
+                <b style={{color:"#FF8C42"}}> {Math.abs(toLose)}kg 감량</b> → 약 <b style={{color:C.text}}>{targetW}kg</b>에서 목표에 닿아요.
+                <div style={{ fontSize:11, color:C.muted, marginTop:5 }}>
+                  주 0.5kg씩 빼면 약 {Math.ceil(Math.abs(toLose)/0.5)}주 걸려요. 이 속도가 근육을 지키는 선이에요.
+                </div>
+              </div>
+            ) : toLose < -0.2 ? (
+              <div style={{ fontSize:12.5, lineHeight:1.7 }}>
+                목표보다 이미 <b style={{color:TYPES.legs.color}}>{Math.abs(toLose)}kg 여유</b>가 있어요.
+                제지방을 유지하며 <b style={{color:C.text}}>{targetW}kg</b>까지는 늘려도 목표 체지방률 안이에요.
+              </div>
+            ) : (
+              <div style={{ fontSize:12.5, color:TYPES.legs.color, fontWeight:700 }}>🎉 목표 체지방률에 도달했어요</div>
+            )}
+          </div>
+        ) : (
+          <div style={{ fontSize:11, color:C.muted, marginTop:10, lineHeight:1.55 }}>
+            위 목표 칸에 <b style={{color:C.text}}>목표 체지방 %</b>를 넣으면, 근육을 지키면서 몇 kg까지 빼면 되는지 계산해드려요.
+          </div>
+        )}
+
+        {/* 추세 + 방향 */}
+        <div style={{ height:1, background:C.line, margin:"14px 0 12px" }} />
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:9 }}>
+          <span style={{ fontSize:11.5, color:C.muted, fontWeight:700 }}>변화 추세</span>
+          <div style={{ display:"flex", gap:5 }}>
+            {[[4,"4주"],[8,"8주"],[12,"12주"]].map(([v,label])=>(
+              <button key={v} onClick={()=>setRange(v)} style={{...chip(range===v, TYPES.push.color), padding:"4px 10px", fontSize:11}}>{label}</button>
+            ))}
+          </div>
+        </div>
+
+        {!trend ? (
+          <div style={{ fontSize:12, color:C.muted, lineHeight:1.6 }}>
+            체지방률을 포함한 측정이 <b style={{color:C.text}}>2회 이상</b> 있어야 근육·지방 변화를 나눠 볼 수 있어요.
+          </div>
+        ) : trend.tooShort ? (
+          <div style={{ fontSize:12, color:C.muted, lineHeight:1.6 }}>측정 간격이 {trend.days}일이라 아직 추세로 보기 어려워요. 1~2주 뒤에 다시 재보세요.</div>
+        ) : (<>
+          <div style={{ display:"flex", gap:6 }}>
+            {[["체중", trend.dW, "kg", C.text],
+              ["제지방", trend.dLbm, "kg", TYPES.legs.color],
+              ["체지방", trend.dFat, "kg", "#FF8C42"]].map(([label,v,unit,col])=>(
+              <div key={label} style={{ flex:1, background:C.surface2, borderRadius:10, padding:"9px 6px", textAlign:"center" }}>
+                <div style={{ fontSize:9.5, color:C.muted, fontWeight:600 }}>{label}</div>
+                <div style={{ fontSize:15, fontWeight:800, marginTop:2,
+                  color: label==="체지방" ? (v>0?C.danger:TYPES.legs.color) : (v>0?col:C.danger) }}>
+                  {v>0?"+":""}{v}<span style={{ fontSize:9, color:C.muted }}>{unit}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize:10.5, color:C.muted, marginTop:7, lineHeight:1.55 }}>
+            {trend.days}일 동안 · 주 평균 {trend.perWeek>0?"+":""}{trend.perWeek}kg
+            {gainRange ? ` (린매스업 권장 주 ${gainRange.low}~${gainRange.high}kg)` : ""}
+          </div>
+
+          {verdict && (
+            <div style={{ marginTop:11, padding:"12px 13px", borderRadius:11,
+              background:tint(toneColor[verdict.tone],0.1), border:`1px solid ${tint(toneColor[verdict.tone],0.38)}` }}>
+              <div style={{ fontSize:12.5, fontWeight:800, color:toneColor[verdict.tone] }}>
+                {verdict.tone==="good"?"✓ ":verdict.tone==="bad"?"⚠️ ":"⚡ "}{verdict.title}
+              </div>
+              <div style={{ fontSize:11.5, color:C.muted, marginTop:5, lineHeight:1.65 }}>{verdict.msg}</div>
+            </div>
+          )}
+        </>)}
+
+        <div style={{ fontSize:10, color:C.muted, marginTop:11, lineHeight:1.5, opacity:0.8 }}>
+          체성분계 값은 측정마다 오차가 있어요. 같은 시간·같은 조건에서 재고, 하루 값보다 몇 주 흐름을 보세요.
+        </div>
+      </>)}
+    </Card>
   );
 }
 
@@ -5085,6 +5612,9 @@ function Stats({ data, target, tdee, weight }) {
           </div>
         )}
       </Card>
+
+      {/* 중량 성장 */}
+      <LiftProgressCard schedule={data.schedule} />
 
       {/* 부위별 볼륨 */}
       <Card>
