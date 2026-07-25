@@ -18,7 +18,7 @@ self.addEventListener("install", (e) => {
     ).then(() => self.skipWaiting())
   );
 });
-
+ 
 self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches.keys()
