@@ -25,16 +25,21 @@ input, textarea, button {
   100% { opacity: 1; transform: scale(1); }
 }
 
-.fade-up { animation: fadeUp 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
-.tab-content { animation: fadeUp 0.28s cubic-bezier(0.22, 1, 0.36, 1) both; }
-.tab-content > div > * { animation: fadeUp 0.34s cubic-bezier(0.22, 1, 0.36, 1) both; }
+/* fill-mode를 backwards로 두는 이유:
+   both를 쓰면 애니메이션이 끝난 뒤에도 transform(translateY(0))이 남는다.
+   transform이 남은 요소는 그 안의 position:fixed 기준을 화면이 아니라 자기 자신으로 바꿔버려서,
+   바텀시트가 화면 아래가 아니라 페이지 맨 끝에 붙는 문제가 생겼다.
+   backwards는 시작 전 상태만 적용하고 끝나면 원래 상태로 돌아가므로 등장 효과는 그대로 유지된다. */
+.fade-up { animation: fadeUp 0.32s cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+.tab-content { animation: fadeUp 0.28s cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+.tab-content > div > * { animation: fadeUp 0.34s cubic-bezier(0.22, 1, 0.36, 1) backwards; }
 .tab-content > div > *:nth-child(4) { animation-delay: 0.03s; }
 .tab-content > div > *:nth-child(5) { animation-delay: 0.06s; }
 .tab-content > div > *:nth-child(6) { animation-delay: 0.09s; }
 .tab-content > div > *:nth-child(7) { animation-delay: 0.12s; }
 .tab-content > div > *:nth-child(n+8) { animation-delay: 0.15s; }
 .grow-bar { animation: growBar 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; transform-origin: bottom; }
-.pop-in { animation: popIn 0.3s ease both; }
+.pop-in { animation: popIn 0.3s ease backwards; }
 
 /* 버튼 누르는 느낌 */
 button { transition: transform 0.12s ease, opacity 0.15s ease; }

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { lookupLocalFoods, localBrandSearch, makeCustomEntry, searchAllFoods, allCategories, servingLabel, displayCat, CATEGORIES, gramsPerServing, portionHint, HAND_GUIDE, CONTAINER_GUIDE, CAT_PORTION_HINT, CATEGORY_GROUPS, catIcon, categoryCounts, NUTRI_FILTERS, proteinPer100kcal, categoryUsage } from "./foodDB.js";
 
 // ================= 상수 =================
@@ -832,7 +833,7 @@ function QuickAdd({ day, updateToday, weight, onGoToday, onAddVocab }) {
 
       {/* 단어 빠른 입력 */}
       {wordOpen && (
-        <div onClick={()=>setWordOpen(false)} style={sheetBg}>
+        <SheetLayer onClose={()=>setWordOpen(false)}>
           <div onClick={(e)=>e.stopPropagation()} style={{...sheet, minHeight:"auto", maxHeight:"none",
             paddingBottom:"calc(18px + env(safe-area-inset-bottom))"}}>
             <div style={grip} />
@@ -850,7 +851,7 @@ function QuickAdd({ day, updateToday, weight, onGoToday, onAddVocab }) {
                 style={{...primary(STUDY_ACCENT), flex:2, opacity:w.term.trim()?1:0.45}}>단어장에 넣기</button>
             </div>
           </div>
-        </div>
+        </SheetLayer>
       )}
 
       {/* 버튼 */}
@@ -1731,7 +1732,7 @@ function MonthNav({ view, setView, accent, right }) {
       </div>
 
       {pickOpen && (
-        <div onClick={()=>setPickOpen(false)} style={sheetBg}>
+        <SheetLayer onClose={()=>setPickOpen(false)}>
           <div onClick={(e)=>e.stopPropagation()} style={{...sheet, minHeight:"auto", maxHeight:"none", paddingBottom:"calc(18px + env(safe-area-inset-bottom))"}}>
             <div style={grip} />
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
@@ -1754,7 +1755,7 @@ function MonthNav({ view, setView, accent, right }) {
             <button onClick={()=>{ setView({ y:today.getFullYear(), m:today.getMonth() }); setPickOpen(false); }}
               style={{...primary(accent), width:"100%", marginTop:14}}>이번 달로 이동</button>
           </div>
-        </div>
+        </SheetLayer>
       )}
     </div>
   );
@@ -1775,7 +1776,7 @@ function PlanEditor({ dateKey, list, onSave, onClose, onShare }) {
   const dow = WEEKDAYS[new Date(dateKey+"T00:00:00").getDay()];
 
   return (
-    <div onClick={save} style={sheetBg}>
+    <SheetLayer onClose={save}>
       <div onClick={(e)=>e.stopPropagation()} style={sheet}>
         <div style={{ flexShrink:0 }}>
           <div style={grip} />
@@ -1849,7 +1850,7 @@ function PlanEditor({ dateKey, list, onSave, onClose, onShare }) {
           <button onClick={save} style={{...primary(TYPES.legs.color), flex:1}}>저장</button>
         </div>
       </div>
-    </div>
+    </SheetLayer>
   );
 }
 
@@ -1873,7 +1874,7 @@ function PlanShareSheet({ target, onClose }) {
     doDownload();
   };
   return (
-    <div onClick={onClose} style={sheetBg}>
+    <SheetLayer onClose={onClose}>
       <div onClick={(e)=>e.stopPropagation()} style={{...sheet, minHeight:"auto", maxHeight:"none", paddingBottom:"calc(18px + env(safe-area-inset-bottom))"}}>
         <div style={grip} />
         <div style={{ fontSize:16, fontWeight:800 }}>휴대폰 캘린더에 넣기</div>
@@ -1906,7 +1907,7 @@ function PlanShareSheet({ target, onClose }) {
         {msg && <div style={{ fontSize:11.5, color:STUDY_ACCENT, marginTop:12, lineHeight:1.55, fontWeight:600 }}>{msg}</div>}
         <button onClick={onClose} style={{...ghost, width:"100%", marginTop:14}}>닫기</button>
       </div>
-    </div>
+    </SheetLayer>
   );
 }
 
@@ -2263,7 +2264,7 @@ function Calendar({ data, persist, updateDay, favProps, apiKey, customFoods, rou
 
       {/* 운동 배정 지우기 확인 */}
       {resetOpen && (
-        <div onClick={()=>setResetOpen(false)} style={sheetBg}>
+        <SheetLayer onClose={()=>setResetOpen(false)}>
           <div onClick={(e)=>e.stopPropagation()} style={{...sheet, minHeight:"auto", maxHeight:"none", paddingBottom:"calc(18px + env(safe-area-inset-bottom))"}}>
             <div style={grip} />
             <div style={{ fontSize:16, fontWeight:800, marginBottom:8 }}>{MONTHS[view.m]} 운동 배정을 지울까요?</div>
@@ -2284,7 +2285,7 @@ function Calendar({ data, persist, updateDay, favProps, apiKey, customFoods, rou
               <button onClick={clearAssignments} style={{...primary(C.amber), flex:2, color:"#141519"}}>운동 배정만 지우기</button>
             </div>
           </div>
-        </div>
+        </SheetLayer>
       )}
 
       {logView==="month" && (<>
@@ -2635,7 +2636,7 @@ function DayEditor({ dateKey, day, schedule, onClose, updateDay, favProps, apiKe
   const clearAll = () => { updateDay(dateKey, emptyDay()); onClose(); };
 
   return (
-    <div onClick={save} style={sheetBg}>
+    <SheetLayer onClose={save}>
       <div onClick={(e)=>e.stopPropagation()} style={sheet}>
         <div style={{ flexShrink:0 }}>
           <div style={grip} />
@@ -2845,7 +2846,7 @@ function DayEditor({ dateKey, day, schedule, onClose, updateDay, favProps, apiKe
           <button onClick={save} style={{...primary(TYPES.legs.color), flex:1}}>저장</button>
         </div>
       </div>
-    </div>
+    </SheetLayer>
   );
 }
 
@@ -4162,7 +4163,7 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
   const done = started && qi >= qs.length;
 
   return (
-    <div onClick={onClose} style={sheetBg}>
+    <SheetLayer onClose={onClose}>
       <div onClick={(e)=>e.stopPropagation()} style={sheet}>
         <div style={{ flexShrink:0 }}>
           <div style={grip} />
@@ -4294,7 +4295,7 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
           <button onClick={onClose} style={{...ghost, width:"100%"}}>{done?"닫기":"그만하기"}</button>
         </div>
       </div>
-    </div>
+    </SheetLayer>
   );
 }
 
@@ -4361,7 +4362,7 @@ ${terms.map((t,i)=>`${i+1}. ${t}`).join("\n")}
   const dupCount = (rows||[]).filter(r=>existingTerms.has(r.term.trim().toLowerCase())).length;
 
   return (
-    <div onClick={onClose} style={sheetBg}>
+    <SheetLayer onClose={onClose}>
       <div onClick={(e)=>e.stopPropagation()} style={sheet}>
         <div style={{ flexShrink:0 }}>
           <div style={grip} />
@@ -4443,7 +4444,7 @@ ${terms.map((t,i)=>`${i+1}. ${t}`).join("\n")}
           </button>
         </div>
       </div>
-    </div>
+    </SheetLayer>
   );
 }
 
@@ -5594,7 +5595,7 @@ function NutriRow({ label, value, target, color, overType, capLabel }) {
 function FoodFilterSheet({ catCounts, sortedGroups, sortedCatsOf, group, setGroup, cat, setCat,
   nutri, setNutri, favOnly, setFavOnly, favCount, customCount, resultCount, onClose, onClear }) {
   return (
-    <div onClick={onClose} style={sheetBg}>
+    <SheetLayer onClose={onClose}>
       <div onClick={(e)=>e.stopPropagation()} style={sheet}>
         <div style={{ flexShrink:0 }}>
           <div style={grip} />
@@ -5680,7 +5681,7 @@ function FoodFilterSheet({ catCounts, sortedGroups, sortedCatsOf, group, setGrou
           <button onClick={onClose} style={{...primary(TYPES.push.color), flex:2}}>{resultCount}개 보기</button>
         </div>
       </div>
-    </div>
+    </SheetLayer>
   );
 }
 
@@ -5940,7 +5941,7 @@ function VocabTodayCard({ vocab, goal, mutate }) {
 // "얼마나 먹었지?"가 가장 막히는 지점이라, 손·그릇 기준을 한 곳에 모아둔다.
 function PortionGuideSheet({ onClose }) {
   return (
-    <div onClick={onClose} style={sheetBg}>
+    <SheetLayer onClose={onClose}>
       <div onClick={(e)=>e.stopPropagation()} style={sheet}>
         <div style={{ flexShrink:0 }}>
           <div style={grip} />
@@ -6009,7 +6010,7 @@ function PortionGuideSheet({ onClose }) {
           <button onClick={onClose} style={{...primary(TYPES.push.color), width:"100%"}}>닫기</button>
         </div>
       </div>
-    </div>
+    </SheetLayer>
   );
 }
 
@@ -7041,6 +7042,17 @@ const activeTagStyle = (col) => ({
   border:`1px solid ${tint(col,0.45)}`, color:col, borderRadius:999,
   padding:"4px 9px", fontSize:10.5, fontWeight:800, cursor:"pointer", whiteSpace:"nowrap",
 });
+
+// 바텀시트를 화면 최상위(body)에 직접 그린다.
+// 이렇게 하면 어떤 조상 요소에 transform·filter 같은 속성이 생겨도
+// position:fixed 기준이 흔들리지 않아 시트가 늘 화면 아래에 정확히 붙는다.
+function SheetLayer({ onClose, children }) {
+  if (typeof document === "undefined" || !document.body) return null;
+  return createPortal(
+    <div onClick={onClose} style={sheetBg}>{children}</div>,
+    document.body
+  );
+}
 
 // 실수로 지우는 걸 막는 2단계 삭제 버튼 — 한 번 누르면 확인 상태, 3초 뒤 자동 취소
 function ConfirmX({ onConfirm, label="삭제", size=15 }) {
