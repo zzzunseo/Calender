@@ -309,8 +309,6 @@ export const FOOD_DB = [
   { cat:"음료", key:"에너지드링크", aliases:["에너지드링크","핫식스","몬스터"], unit:"count", baseQty:1, protein:0, carbs:28, sugar:27, fat:0, kcal:110, liquidMl:250 },
   { cat:"음료", key:"제로에너지드링크", aliases:["몬스터제로","에너지드링크제로"], unit:"count", baseQty:1, protein:0, carbs:2, sugar:0, fat:0, kcal:10, liquidMl:250 },
   { cat:"음료", key:"오렌지주스", aliases:["오렌지주스"], unit:"count", baseQty:1, protein:2, carbs:26, sugar:22, fat:0, kcal:110, liquidMl:200 },
-  { cat:"음료", key:"아메리카노(음료)", aliases:["아이스아메리카노","따뜻한아메리카노"], unit:"count", baseQty:1, protein:0.3, carbs:3, sugar:0, fat:0, kcal:10, liquidMl:355 },
-  { cat:"음료", key:"우유(음료)", aliases:["흰우유"], unit:"count", baseQty:1, protein:7, carbs:10, sugar:10, fat:7, kcal:135, liquidMl:200 },
 
   // ---- 반찬·야채 (1인분/한 접시 기준) ----
   { cat:"반찬·야채", key:"장조림", aliases:["장조림","소고기장조림"], unit:"count", baseQty:1, protein:15, carbs:6, sugar:4, fat:5, kcal:130 },
@@ -341,7 +339,7 @@ export const FOOD_DB = [
   { cat:"반찬·야채", key:"고사리나물", aliases:["고사리","고사리나물"], unit:"count", baseQty:1, protein:2, carbs:5, sugar:1, fat:3, kcal:55 },
   { cat:"반찬·야채", key:"도라지무침", aliases:["도라지","도라지무침"], unit:"count", baseQty:1, protein:2, carbs:9, sugar:3, fat:3, kcal:70 },
   { cat:"반찬·야채", key:"파김치", aliases:["파김치"], unit:"count", baseQty:1, protein:1, carbs:5, sugar:2, fat:0.3, kcal:30 },
-  { cat:"반찬·야채", key:"제육볶음(반찬)", aliases:["제육볶음 반찬"], unit:"count", baseQty:1, protein:15, carbs:10, sugar:5, fat:12, kcal:220 },
+  { cat:"반찬·야채", key:"제육볶음(반찬 1접시)", aliases:["제육볶음 반찬"], unit:"count", baseQty:1, protein:15, carbs:10, sugar:5, fat:12, kcal:220 },
   { cat:"반찬·야채", key:"코다리조림", aliases:["코다리조림","코다리"], unit:"count", baseQty:1, protein:18, carbs:8, sugar:5, fat:6, kcal:170 },
 
   // ---- 면류 (1인분 기준) ----
@@ -349,8 +347,6 @@ export const FOOD_DB = [
   { cat:"면류", key:"비빔냉면", aliases:["비빔냉면"], unit:"count", baseQty:1, protein:14, carbs:90, sugar:20, fat:6, kcal:500 },
   { cat:"면류", key:"콩국수", aliases:["콩국수"], unit:"count", baseQty:1, protein:22, carbs:80, sugar:8, fat:16, kcal:560 },
   { cat:"면류", key:"막국수", aliases:["막국수"], unit:"count", baseQty:1, protein:12, carbs:78, sugar:12, fat:6, kcal:440 },
-  { cat:"면류", key:"잔치국수(면류)", aliases:["온면"], unit:"count", baseQty:1, protein:12, carbs:75, sugar:4, fat:5, kcal:400 },
-  { cat:"면류", key:"비빔국수(면류)", aliases:["골뱅이비빔국수"], unit:"count", baseQty:1, protein:14, carbs:88, sugar:16, fat:8, kcal:500 },
   { cat:"면류", key:"짜장라면", aliases:["짜장라면","짜파게티"], unit:"count", baseQty:1, protein:11, carbs:82, sugar:8, fat:18, kcal:540 },
   { cat:"면류", key:"비빔면", aliases:["비빔면","팔도비빔면"], unit:"count", baseQty:1, protein:9, carbs:80, sugar:14, fat:14, kcal:520 },
   { cat:"면류", key:"쫄쫄이국수", aliases:["잔치쫄면"], unit:"count", baseQty:1, protein:10, carbs:82, sugar:12, fat:6, kcal:440 },
@@ -358,8 +354,6 @@ export const FOOD_DB = [
   { cat:"면류", key:"파스타 토마토", aliases:["토마토파스타","아라비아타"], unit:"count", baseQty:1, protein:16, carbs:82, sugar:12, fat:14, kcal:560 },
   { cat:"면류", key:"파스타 오일", aliases:["오일파스타","알리오올리오"], unit:"count", baseQty:1, protein:14, carbs:78, sugar:4, fat:20, kcal:580 },
   { cat:"면류", key:"라자냐", aliases:["라자냐"], unit:"count", baseQty:1, protein:24, carbs:55, sugar:10, fat:28, kcal:600 },
-  { cat:"면류", key:"쌀국수(면류)", aliases:["소고기쌀국수","양지쌀국수"], unit:"count", baseQty:1, protein:22, carbs:68, sugar:6, fat:8, kcal:440 },
-  { cat:"면류", key:"우동(면류)", aliases:["가케우동","붓카케우동"], unit:"count", baseQty:1, protein:12, carbs:72, sugar:5, fat:5, kcal:390 },
   { cat:"면류", key:"국수전골", aliases:["국수전골","멸치국수"], unit:"count", baseQty:1, protein:13, carbs:76, sugar:4, fat:6, kcal:420 },
 
   // ---- 국·탕 (1인분 기준) ----
@@ -388,7 +382,7 @@ export const FOOD_DB = [
   { cat:"고기·구이", key:"소갈비살", aliases:["소갈비살","꽃갈비"], unit:"count", baseQty:1, protein:30, carbs:2, sugar:0, fat:35, kcal:460 },
   { cat:"고기·구이", key:"등심스테이크", aliases:["등심스테이크","스테이크"], unit:"count", baseQty:1, protein:38, carbs:3, sugar:0, fat:28, kcal:430 },
   { cat:"고기·구이", key:"안심스테이크", aliases:["안심스테이크"], unit:"count", baseQty:1, protein:40, carbs:2, sugar:0, fat:18, kcal:340 },
-  { cat:"고기·구이", key:"닭갈비(구이)", aliases:["닭갈비 구이"], unit:"count", baseQty:1, protein:32, carbs:12, sugar:8, fat:16, kcal:340 },
+  { cat:"고기·구이", key:"닭갈비(구이 1인분)", aliases:["닭갈비 구이"], unit:"count", baseQty:1, protein:32, carbs:12, sugar:8, fat:16, kcal:340 },
   { cat:"고기·구이", key:"오리구이", aliases:["오리구이","훈제오리"], unit:"count", baseQty:1, protein:28, carbs:2, sugar:0, fat:30, kcal:400 },
   { cat:"고기·구이", key:"양고기", aliases:["양고기","램","양갈비"], unit:"count", baseQty:1, protein:30, carbs:1, sugar:0, fat:26, kcal:380 },
   { cat:"고기·구이", key:"닭볶음탕", aliases:["닭볶음탕","닭도리탕"], unit:"count", baseQty:1, protein:35, carbs:30, sugar:12, fat:22, kcal:480 },
@@ -408,7 +402,6 @@ export const FOOD_DB = [
   { cat:"과일", key:"키위", aliases:["키위"], unit:"count", baseQty:1, protein:1, carbs:11, sugar:7, fat:0.4, kcal:46, gramsPerServing:80 },
   { cat:"과일", key:"배", aliases:["배(과일)"], unit:"count", baseQty:1, protein:0.6, carbs:27, sugar:17, fat:0.2, kcal:100, gramsPerServing:300 },
   { cat:"과일", key:"복숭아", aliases:["복숭아"], unit:"count", baseQty:1, protein:1, carbs:15, sugar:13, fat:0.3, kcal:60, gramsPerServing:200 },
-  { cat:"과일", key:"방울토마토(과일)", aliases:["토마토(과일)"], unit:"count", baseQty:1, protein:1, carbs:5, sugar:3, fat:0.2, kcal:22, gramsPerServing:100 },
   { cat:"과일", key:"망고", aliases:["망고"], unit:"count", baseQty:1, protein:1.4, carbs:25, sugar:23, fat:0.6, kcal:100, gramsPerServing:200 },
   { cat:"과일", key:"파인애플", aliases:["파인애플"], unit:"count", baseQty:1, protein:0.5, carbs:13, sugar:10, fat:0.1, kcal:50, gramsPerServing:150 },
   { cat:"과일", key:"체리", aliases:["체리"], unit:"count", baseQty:1, protein:1, carbs:16, sugar:13, fat:0.2, kcal:63, gramsPerServing:100 },
@@ -488,9 +481,7 @@ export const FOOD_DB = [
   { cat:"국·탕", key:"짬뽕순두부", aliases:["짬뽕순두부"], unit:"count", baseQty:1, protein:22, carbs:20, sugar:5, fat:16, kcal:340 },
   // 인기 외식/한식
   { cat:"한식", key:"제육쌈밥", aliases:["제육쌈밥","쌈밥"], unit:"count", baseQty:1, protein:30, carbs:95, sugar:10, fat:24, kcal:700 },
-  { cat:"한식", key:"닭볶음탕(한식)", aliases:["닭도리탕덮밥"], unit:"count", baseQty:1, protein:35, carbs:35, sugar:12, fat:22, kcal:490 },
   { cat:"한식", key:"보쌈정식", aliases:["보쌈정식"], unit:"count", baseQty:1, protein:38, carbs:40, sugar:6, fat:34, kcal:640 },
-  { cat:"한식", key:"김치볶음밥(한식)", aliases:["김치볶음밥 정식"], unit:"count", baseQty:1, protein:14, carbs:82, sugar:6, fat:18, kcal:560 },
   { cat:"한식", key:"콩나물국밥", aliases:["콩나물국밥"], unit:"count", baseQty:1, protein:14, carbs:60, sugar:3, fat:8, kcal:380 },
   { cat:"한식", key:"육회비빔밥", aliases:["육회비빔밥"], unit:"count", baseQty:1, protein:24, carbs:88, sugar:8, fat:14, kcal:580 },
   { cat:"한식", key:"산낙지", aliases:["산낙지"], unit:"count", baseQty:1, protein:16, carbs:4, sugar:0, fat:1.5, kcal:90 },
@@ -498,8 +489,8 @@ export const FOOD_DB = [
 
   // ---- 고기 부위별 (100g 생고기/구이 전 기준) ----
   // 돼지고기
-  { cat:"고기·구이", key:"항정살(생)", aliases:["항정"], unit:"gram", baseQty:100, protein:19, carbs:0, sugar:0, fat:25, kcal:300 },
-  { cat:"고기·구이", key:"갈매기살(생)", aliases:["갈매기"], unit:"gram", baseQty:100, protein:21, carbs:0, sugar:0, fat:14, kcal:210 },
+  { cat:"고기·구이", key:"항정살(생고기 기준)", aliases:["항정"], unit:"gram", baseQty:100, protein:19, carbs:0, sugar:0, fat:25, kcal:300 },
+  { cat:"고기·구이", key:"갈매기살(생고기 기준)", aliases:["갈매기"], unit:"gram", baseQty:100, protein:21, carbs:0, sugar:0, fat:14, kcal:210 },
   { cat:"고기·구이", key:"돼지앞다리살", aliases:["앞다리살","전지"], unit:"gram", baseQty:100, protein:20, carbs:0, sugar:0, fat:12, kcal:190 },
   { cat:"고기·구이", key:"돼지뒷다리살", aliases:["뒷다리살","후지"], unit:"gram", baseQty:100, protein:21, carbs:0, sugar:0, fat:7, kcal:150 },
   { cat:"고기·구이", key:"돼지등심", aliases:["돼지등심"], unit:"gram", baseQty:100, protein:22, carbs:0, sugar:0, fat:6, kcal:145 },
@@ -509,19 +500,19 @@ export const FOOD_DB = [
   // 소고기
   { cat:"고기·구이", key:"소안심(생)", aliases:["소안심","안심"], unit:"gram", baseQty:100, protein:22, carbs:0, sugar:0, fat:10, kcal:180 },
   { cat:"고기·구이", key:"채끝(생)", aliases:["채끝","채끝등심"], unit:"gram", baseQty:100, protein:21, carbs:0, sugar:0, fat:14, kcal:215 },
-  { cat:"고기·구이", key:"차돌박이(생)", aliases:["차돌"], unit:"gram", baseQty:100, protein:18, carbs:0, sugar:0, fat:30, kcal:340 },
+  { cat:"고기·구이", key:"차돌박이(생고기 기준)", aliases:["차돌"], unit:"gram", baseQty:100, protein:18, carbs:0, sugar:0, fat:30, kcal:340 },
   { cat:"고기·구이", key:"부챗살", aliases:["부챗살","부채살"], unit:"gram", baseQty:100, protein:21, carbs:0, sugar:0, fat:12, kcal:195 },
   { cat:"고기·구이", key:"살치살", aliases:["살치살"], unit:"gram", baseQty:100, protein:18, carbs:0, sugar:0, fat:28, kcal:325 },
   { cat:"고기·구이", key:"토시살", aliases:["토시살"], unit:"gram", baseQty:100, protein:20, carbs:0, sugar:0, fat:16, kcal:230 },
   { cat:"고기·구이", key:"우삼겹", aliases:["우삼겹"], unit:"gram", baseQty:100, protein:17, carbs:0, sugar:0, fat:32, kcal:355 },
-  { cat:"고기·구이", key:"소갈비살(생)", aliases:["갈비살","꽃갈비살"], unit:"gram", baseQty:100, protein:19, carbs:0, sugar:0, fat:22, kcal:280 },
+  { cat:"고기·구이", key:"소갈비살(생고기 기준)", aliases:["갈비살","꽃갈비살"], unit:"gram", baseQty:100, protein:19, carbs:0, sugar:0, fat:22, kcal:280 },
   { cat:"고기·구이", key:"양지(생)", aliases:["양지","양지머리"], unit:"gram", baseQty:100, protein:20, carbs:0, sugar:0, fat:15, kcal:220 },
   { cat:"고기·구이", key:"사태", aliases:["사태"], unit:"gram", baseQty:100, protein:21, carbs:0, sugar:0, fat:6, kcal:140 },
   { cat:"고기·구이", key:"우둔살", aliases:["우둔","홍두깨살"], unit:"gram", baseQty:100, protein:22, carbs:0, sugar:0, fat:4, kcal:125 },
   // 닭·기타
   { cat:"고기·구이", key:"닭날개", aliases:["닭날개","윙"], unit:"gram", baseQty:100, protein:20, carbs:0, sugar:0, fat:13, kcal:200 },
   { cat:"고기·구이", key:"오리고기(생)", aliases:["오리고기","오리살"], unit:"gram", baseQty:100, protein:19, carbs:0, sugar:0, fat:28, kcal:335 },
-  { cat:"고기·구이", key:"양고기(생)", aliases:["양고기살","램구이"], unit:"gram", baseQty:100, protein:20, carbs:0, sugar:0, fat:21, kcal:280 },
+  { cat:"고기·구이", key:"양고기(생고기 기준)", aliases:["양고기살","램구이"], unit:"gram", baseQty:100, protein:20, carbs:0, sugar:0, fat:21, kcal:280 },
   { cat:"고기·구이", key:"양갈비(생)", aliases:["양갈비살","램찹"], unit:"gram", baseQty:100, protein:18, carbs:0, sugar:0, fat:25, kcal:300 },
   // 꼬치류 (1꼬치 기준)
   { cat:"고기·구이", key:"소고기꼬치", aliases:["소고기꼬치"], unit:"count", baseQty:1, protein:10, carbs:2, sugar:1, fat:6, kcal:100 },

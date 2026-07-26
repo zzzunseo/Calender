@@ -686,7 +686,7 @@ export default function App() {
       <div key={tab} className="tab-content">
         {tab==="today" && <Today data={data} updateDay={updateDay} addFoodsToday={addFoodsToday} target={proteinTarget()} tdee={computeTDEE(data.profile, latestWeight())} weight={latestWeight()} favProps={favProps} apiKey={data.profile.apiKey} customFoods={data.customFoods} mutate={mutate} />}
         {tab==="calendar" && <Calendar data={data} persist={persist} updateDay={updateDay} favProps={favProps} apiKey={data.profile.apiKey} customFoods={data.customFoods} routines={data.routines} mutate={mutate} />}
-        {tab==="foods" && <Foods addFoodsToday={addFoodsToday} apiKey={data.profile.apiKey} customFoods={data.customFoods} mutate={mutate} schedule={data.schedule} favorites={data.favorites} mealSets={data.mealSets} />}
+        {tab==="foods" && <Foods addFoodsToday={addFoodsToday} apiKey={data.profile.apiKey} customFoods={data.customFoods} mutate={mutate} schedule={data.schedule} favorites={data.favorites} mealSets={data.mealSets} target={proteinTarget()} tdee={computeTDEE(data.profile, latestWeight())} surplus={num(data.profile.surplus)} />}
         {tab==="study" && <Study data={data} persist={persist} mutate={mutate} />}
         {tab==="stats" && <Stats data={data} target={proteinTarget()} tdee={computeTDEE(data.profile, latestWeight())} weight={latestWeight()} />}
         {tab==="body" && <Body data={data} persist={persist} mutate={mutate} target={proteinTarget()} latestWeight={latestWeight()} tdee={computeTDEE(data.profile, latestWeight())} />}
@@ -1011,6 +1011,33 @@ function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps,
           </>
         )}
 
+        {/* 주간 칼로리 뱅킹 — 하루 넘겨도 주 단위로 보면 만회 가능 */}
+        {(()=>{
+          const bank = calorieBank(data.schedule, weight, tdee, surplus);
+          if (!bank || bank.logged < 2) return null;
+          const over = bank.diff > 0;
+          const col = bank.onTrack ? TYPES.legs.color : over ? C.amber : "#6BA8FF";
+          return (
+            <div style={{ marginTop:12, padding:"10px 12px", borderRadius:10,
+              background:tint(col,0.09), border:`1px solid ${tint(col,0.3)}` }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
+                <span style={{ fontSize:11, color:C.muted, fontWeight:700 }}>이번 주 누적</span>
+                <span style={{ fontSize:12.5, fontWeight:800, color:col }}>
+                  {over?"+":""}{bank.diff}kcal
+                </span>
+              </div>
+              <div style={{ fontSize:11, color:C.muted, marginTop:5, lineHeight:1.6 }}>
+                {bank.onTrack
+                  ? "주간 평균이 목표에 잘 맞고 있어요 👍"
+                  : bank.remain > 0
+                    ? `남은 ${bank.remain}일 동안 하루 ${bank.perRemain}kcal씩 먹으면 주간 목표에 맞아요.`
+                    : over ? "이번 주는 목표보다 많이 먹었어요. 다음 주에 조절해봐요."
+                           : "이번 주는 목표보다 적게 먹었어요. 벌크 중이면 조금 더 채워보세요."}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* 걸음수 → 소모 칼로리 */}
         <div style={{ marginTop:14, paddingTop:14, borderTop:`1px solid ${C.line}` }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:9 }}>
@@ -1165,7 +1192,7 @@ function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps,
       </Card>
 
       {/* 회복 상태 + 주간 운동 목표 */}
-      <RecoveryCard schedule={data.schedule} weekGoals={data.weekGoals} mutate={mutate} days={days} />
+      <RecoveryCard schedule={data.schedule} weekGoals={data.weekGoals} mutate={mutate} days={days} measurements={data.measurements} />
 
       {/* 컨디션 · 습관 · 일기 (접이식 묶음) — 하루 한 번만 쓰는 것들 */}
       <Collapsible title="컨디션 · 습관 · 일기" accent={SLEEP_ACCENT}
@@ -2291,6 +2318,76 @@ const allTimeMaxW = (schedule, name, beforeKey) => {
 };
 
 // 대표운동(mainLift) 이름별 날짜순 무게 추이 (최근 10개)
+// ===== 디로드 · 측정 리마인더 · 칼로리 뱅킹 (전부 로컬 계산) =====
+// 고강도를 몇 주 이어왔는지 — 6~8주 넘으면 볼륨을 낮추는 주(디로드)를 권한다
+const deloadState = (schedule) => {
+  const weeks = [];
+  for (let w = 0; w < 10; w++) {
+    let sets = 0, days = 0;
+    for (let d = 0; d < 7; d++) {
+      const dt = new Date(); dt.setDate(dt.getDate() - (w*7 + d));
+      const kk = keyOf(dt.getFullYear(), dt.getMonth(), dt.getDate());
+      const t = partBreakdown(schedule[kk]?.partSets).total;
+      sets += t; if (didWorkout(schedule[kk])) days++;
+    }
+    weeks.push({ sets, days });
+  }
+  // 주 3회 이상 + 30세트 이상이면 "고강도 주"로 본다
+  const isHard = (w)=> w.days >= 3 && w.sets >= 30;
+  let streak = 0;
+  for (const w of weeks) { if (isHard(w)) streak++; else break; }
+  // 최근 주 볼륨이 직전 대비 크게 낮으면 이미 디로드 중
+  const recentlyDeloaded = weeks.length>1 && weeks[0].sets>0 && weeks[1].sets>0
+    && weeks[0].sets < weeks[1].sets * 0.6;
+  return {
+    hardWeeks: streak,
+    recentlyDeloaded,
+    due: streak >= 6 && !recentlyDeloaded,
+    soon: streak === 5 && !recentlyDeloaded,
+    avgSets: Math.round(weeks.slice(0,4).reduce((a,w)=>a+w.sets,0)/4),
+  };
+};
+
+// 체성분 분석이 쓸모 있으려면 정기 측정이 필요하다. 주 1회 기준으로 알린다.
+const measureReminder = (measurements) => {
+  const list = [...(measurements||[])].sort((a,b)=>a.date.localeCompare(b.date));
+  if (list.length === 0) return { never:true, daysAgo:null, due:true };
+  const last = list[list.length-1];
+  const t = new Date(); t.setHours(0,0,0,0);
+  const daysAgo = Math.round((t - new Date(last.date+"T00:00:00")) / 86400000);
+  return { never:false, daysAgo, lastDate:last.date, due: daysAgo >= 7, soon: daysAgo === 6 };
+};
+
+// 칼로리 뱅킹 — 하루 초과해도 주간 평균으로 보면 괜찮은 경우가 많다.
+// 하루 망쳤다고 포기하지 않게, 남은 날에 얼마씩 먹으면 되는지 알려준다.
+const calorieBank = (schedule, weight, tdee, surplus) => {
+  if (tdee == null) return null;
+  const goalPerDay = tdee + num(surplus);
+  const t = new Date(); t.setHours(0,0,0,0);
+  const dow = t.getDay();                 // 0=일
+  const elapsed = dow + 1;                // 오늘 포함 지난 일수
+  const remain = 7 - elapsed;             // 이번 주 남은 날
+  let net = 0, logged = 0;
+  for (let i = 0; i < elapsed; i++) {
+    const d = new Date(t); d.setDate(t.getDate() - (elapsed-1-i));
+    const kk = keyOf(d.getFullYear(), d.getMonth(), d.getDate());
+    const e = schedule[kk];
+    const foods = e?.foods || [];
+    if (foods.length === 0) continue;
+    logged++;
+    const inK = foods.reduce((sm,f)=>sm+num(f.kcal),0);
+    const out = burnedKcal(e, weight);
+    net += (inK - out) - goalPerDay;      // 목표 대비 초과(+)/부족(-)
+  }
+  if (logged === 0) return null;
+  const perRemain = remain > 0 ? Math.round(goalPerDay - net/remain) : null;
+  return {
+    diff: Math.round(net), logged, remain, goalPerDay,
+    perRemain,                            // 남은 날 하루 권장 섭취
+    onTrack: Math.abs(net) <= goalPerDay * 0.15,
+  };
+};
+
 // ===== 회복 상태 (로컬 판단) =====
 // 벌크 중엔 과훈련이 쉬워서, 연속 운동일·수면·볼륨을 함께 본다.
 const recoveryState = (schedule, weightAvgSleep) => {
@@ -2350,8 +2447,14 @@ const liftStats = (schedule) => {
     const best1  = g.sessions.reduce((m,x)=> (x.e1||0) > (m.e1||0) ? x : m, g.sessions[0]);
     const first = g.sessions[0];
     const daysAgo = Math.round((t - new Date(last.date+"T00:00:00"))/86400000);
+    // 최고 중량이 갱신된 순간만 뽑아 성장 이력을 만든다
+    const prs = [];
+    let peak = 0;
+    for (const x of g.sessions) {
+      if (x.w > peak) { prs.push({ date:x.date, w:x.w, r:x.r, e1:x.e1, gain: peak>0 ? rd1(x.w-peak) : null }); peak = x.w; }
+    }
     return {
-      name: g.name, count: g.sessions.length, sessions: g.sessions,
+      name: g.name, count: g.sessions.length, sessions: g.sessions, prs,
       last, bestW, best1, first, daysAgo,
       gain: rd1(last.w - first.w),                  // 처음 대비 중량 변화
       isPR: last.w >= bestW.w && g.sessions.length >= 2,  // 최근이 최고 중량인가
@@ -2819,7 +2922,7 @@ function SleepBlock({ value, onChange }) {
 }
 
 // ================= 음식 (검색 · 내 음식 · 외식추천) =================
-function Foods({ addFoodsToday, apiKey, customFoods, mutate, schedule, favorites, mealSets }) {
+function Foods({ addFoodsToday, apiKey, customFoods, mutate, schedule, favorites, mealSets, target, tdee, surplus }) {
   const [mode, setMode] = useState("search");
   return (
     <div style={{ padding:"22px 18px 8px" }}>
@@ -2837,13 +2940,13 @@ function Foods({ addFoodsToday, apiKey, customFoods, mutate, schedule, favorites
       </div>
 
       {mode==="search"
-        ? <FoodSearch addFoodsToday={addFoodsToday} customFoods={customFoods} mutate={mutate} schedule={schedule} favorites={favorites||[]} mealSets={mealSets||[]} />
+        ? <FoodSearch addFoodsToday={addFoodsToday} customFoods={customFoods} mutate={mutate} schedule={schedule} favorites={favorites||[]} mealSets={mealSets||[]} target={target} tdee={tdee} surplus={surplus} />
         : <Dining addFoodsToday={addFoodsToday} apiKey={apiKey} customFoods={customFoods} embedded />}
     </div>
   );
 }
 
-function FoodSearch({ addFoodsToday, customFoods, mutate, schedule, favorites, mealSets }) {
+function FoodSearch({ addFoodsToday, customFoods, mutate, schedule, favorites, mealSets, target, tdee, surplus }) {
   const [q, setQ] = useState("");
   const [cat, setCat] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -2855,6 +2958,16 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule, favorites, m
   const [nutri, setNutri] = useState(null);   // 영양 기준 필터
   const [favOnly, setFavOnly] = useState(false);
   const [sortBy, setSortBy] = useState("default");
+  const [filterOpen, setFilterOpen] = useState(false);
+  // 오늘 얼마나 먹었는지 — "이거 먹으면 목표 몇 %" 를 미리 보여주기 위함
+  const todayFoodsNow = (schedule?.[todayKey()]?.foods) || [];
+  const eaten = {
+    protein: todayFoodsNow.reduce((s2,f)=>s2+num(f.protein),0),
+    kcal: todayFoodsNow.reduce((s2,f)=>s2+num(f.kcal),0),
+  };
+  const kcalGoal = tdee!=null ? tdee + num(surplus) : null;
+  const activeCount = (cat?1:0) + (!cat&&group?1:0) + (nutri?1:0) + (favOnly?1:0);
+  const clearFilters = ()=>{ setCat(null); setGroup(null); setNutri(null); setFavOnly(false); };
 
   // 지금까지 기록한 식단에서 최근·자주 먹은 음식 뽑기 (이름+영양 그대로 원탭 재등록용)
   const quickFoods = React.useMemo(()=>{
@@ -2975,84 +3088,32 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule, favorites, m
         {q && <span onClick={()=>setQ("")} style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", fontSize:18, color:C.muted, cursor:"pointer", lineHeight:1 }}>×</span>}
       </div>
 
-      {/* 영양 기준 빠른 필터 — 카테고리보다 이게 더 쓸모 있을 때가 많다 */}
-      <div style={{ display:"flex", gap:6, marginTop:10, overflowX:"auto", paddingBottom:2, scrollbarWidth:"none",
-        WebkitMaskImage:"linear-gradient(to right, #000 0, #000 calc(100% - 22px), transparent 100%)",
-        maskImage:"linear-gradient(to right, #000 0, #000 calc(100% - 22px), transparent 100%)" }}>
-        {favorites.length>0 && (
-          <button onClick={()=>{ setFavOnly(v=>!v); setNutri(null); }}
-            style={{...chip(favOnly, "#FFD24B"), flexShrink:0, padding:"6px 12px", fontSize:12}}>
-            ⭐ 즐겨찾기 {favorites.length}
-          </button>
-        )}
-        {NUTRI_FILTERS.map((f)=>(
-          <button key={f.key} onClick={()=>{ setNutri(nutri===f.key?null:f.key); setFavOnly(false); }}
-            title={f.desc}
-            style={{...chip(nutri===f.key, f.color), flexShrink:0, padding:"6px 12px", fontSize:12}}>
-            {f.icon} {f.label}
-          </button>
-        ))}
-      </div>
-      {nutri && (
-        <div style={{ fontSize:10.5, color:C.muted, marginTop:6 }}>
-          {NUTRI_FILTERS.find(f=>f.key===nutri)?.desc}
-        </div>
-      )}
-
-      {/* 카테고리 — 큰 갈래 먼저, 고르면 하위가 펼쳐진다 */}
-      <div style={{ display:"flex", gap:6, marginTop:9 }}>
-        <button onClick={()=>{ setGroup(null); setCat(null); }}
-          style={{...chip(group===null && cat===null, TYPES.push.color), flex:"0 0 auto", padding:"7px 13px", fontSize:12}}>전체</button>
-        {customFoods.length>0 && (
-          <button onClick={()=>{ setCat(cat==="내 음식"?null:"내 음식"); setGroup(null); }}
-            style={{...chip(cat==="내 음식", TYPES.legs.color), flex:"0 0 auto", padding:"7px 13px", fontSize:12}}>
-            ⭐ 내 음식 {customFoods.length}
-          </button>
-        )}
-      </div>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:5, marginTop:6 }}>
-        {sortedGroups.map((g)=>{
-          const on = group===g.key;
-          const total = g.cats.reduce((n,c)=>n+(catCounts[c]||0),0);
-          const used = groupUse(g);
-          return (
-            <button key={g.key} onClick={()=>{ setGroup(on?null:g.key); setCat(null); }}
-              style={{ padding:"9px 2px", borderRadius:11, cursor:"pointer", textAlign:"center",
-                border:`1.5px solid ${on?g.color:C.line}`, background: on?tint(g.color,0.15):C.surface,
-                color: on?g.color:C.muted }}>
-              <div style={{ fontSize:17, lineHeight:1.1 }}>{g.icon}</div>
-              <div style={{ fontSize:9, fontWeight:800, marginTop:3, lineHeight:1.15, wordBreak:"keep-all" }}>{g.key}</div>
-              <div style={{ fontSize:8.5, color: used>0?g.color:C.muted, marginTop:1 }}>
-                {used>0 ? `${used}회` : total}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-      {/* 고른 갈래의 하위 카테고리 */}
-      {group && (
-        <div style={{ display:"flex", gap:5, marginTop:7, flexWrap:"wrap" }}>
-          {sortedCatsOf(group).map((c)=>(
-            <button key={c} onClick={()=>setCat(cat===c?null:c)}
-              style={{...chip(cat===c, TYPES.push.color), padding:"6px 11px", fontSize:11.5}}>
-              {catIcon(c)} {c} <span style={{ opacity:0.65 }}>{catCounts[c]}</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* 계량 도움말 진입 */}
-      <div style={{ display:"flex", justifyContent:"flex-end", marginTop:-4, marginBottom:10 }}>
-        <button onClick={()=>setGuideOpen(true)} style={{ background:"none", border:`1px solid ${C.line}`,
-          borderRadius:999, padding:"6px 12px", cursor:"pointer", color:C.muted, fontSize:11, fontWeight:700 }}>
-          📏 얼마나 먹었는지 재는 법
+      {/* 필터 한 줄 — 자세한 건 시트에서 (화면을 짧게 유지) */}
+      <div style={{ display:"flex", gap:6, marginTop:10 }}>
+        <button onClick={()=>setFilterOpen(true)}
+          style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", gap:6,
+            padding:"9px 0", borderRadius:10, cursor:"pointer", fontSize:12, fontWeight:800,
+            border:`1.5px solid ${activeCount>0?TYPES.push.color:C.line}`,
+            background: activeCount>0?tint(TYPES.push.color,0.13):C.surface,
+            color: activeCount>0?TYPES.push.color:C.muted }}>
+          ⚙️ 필터{activeCount>0?` ${activeCount}`:""}
+        </button>
+        <button onClick={()=>setGuideOpen(true)}
+          style={{ flex:1, padding:"9px 0", borderRadius:10, cursor:"pointer", fontSize:12, fontWeight:700,
+            border:`1px solid ${C.line}`, background:C.surface, color:C.muted }}>
+          📏 얼마나 먹었지?
         </button>
       </div>
 
-      {guideOpen && <PortionGuideSheet onClose={()=>setGuideOpen(false)} />}
-
-      {/* 식단 세트 — 매일 같은 조합을 원탭으로 */}
-      <MealSets sets={mealSets} mutate={mutate} addFoodsToday={addFoodsToday} schedule={schedule} />
+      {filterOpen && (
+        <FoodFilterSheet
+          catCounts={catCounts} sortedGroups={sortedGroups} sortedCatsOf={sortedCatsOf}
+          group={group} setGroup={setGroup} cat={cat} setCat={setCat}
+          nutri={nutri} setNutri={setNutri} favOnly={favOnly} setFavOnly={setFavOnly}
+          favCount={favorites.length} customCount={customFoods.length}
+          resultCount={results.length} onClose={()=>setFilterOpen(false)}
+          onClear={clearFilters} />
+      )}
 
       {/* 빠른 추가 — 최근·자주 먹은 음식 */}
       {quickList.length>0 && !q && !cat && (
@@ -3084,98 +3145,6 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule, favorites, m
           </div>
         </Card>
       )}
-
-      {/* 내 음식 등록 */}
-      <Card>
-        <div onClick={()=>setAddOpen((v)=>!v)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", cursor:"pointer" }}>
-          <span style={lbl}>+ 내 음식 등록</span>
-          <span style={{ fontSize:14, color:C.muted, transform:addOpen?"rotate(180deg)":"none", transition:"transform .2s" }}>▾</span>
-        </div>
-        {addOpen && (
-          <>
-            <div style={{ fontSize:11.5, color:C.muted, marginTop:8, lineHeight:1.55 }}>
-              <b style={{color:C.text}}>1인분</b> 기준 영양성분을 넣어주세요. 이름엔 수량을 빼고요 —
-              "엄마표 닭갈비"로 저장하면 나중에 "엄마표 닭갈비 2인분"도 자동 계산돼요.
-            </div>
-
-            <div style={{ fontSize:11, color:C.muted, fontWeight:700, margin:"14px 0 6px" }}>음식 이름</div>
-            <input value={cf.name} onChange={(e)=>setCf({...cf,name:e.target.value})} placeholder="예: 엄마표 닭갈비"
-              style={{...inp, width:"100%", boxSizing:"border-box"}} />
-
-            <div style={{ fontSize:11, color:C.muted, fontWeight:700, margin:"14px 0 6px" }}>카테고리</div>
-            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-              {CATEGORIES.map((c)=>(
-                <button key={c} onClick={()=>setCf({...cf, cat:c})} style={{...chip(cf.cat===c, TYPES.legs.color), padding:"7px 11px", fontSize:12}}>{c}</button>
-              ))}
-            </div>
-
-            <div style={{ fontSize:11, color:C.muted, fontWeight:700, margin:"14px 0 6px" }}>영양성분 (1인분)</div>
-            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-              <LabeledInput label="단백질 g" v={cf.protein} on={(v)=>setCf({...cf,protein:v})} />
-              <LabeledInput label="탄수 g" v={cf.carbs} on={(v)=>setCf({...cf,carbs:v})} />
-              <LabeledInput label="당류 g" v={cf.sugar} on={(v)=>setCf({...cf,sugar:v})} />
-            </div>
-            <div style={{ display:"flex", gap:6, marginTop:8 }}>
-              <LabeledInput label="지방 g" v={cf.fat} on={(v)=>setCf({...cf,fat:v})} />
-              <LabeledInput label="칼로리 kcal" v={cf.kcal} on={(v)=>setCf({...cf,kcal:v})} />
-            </div>
-
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", margin:"14px 0 6px" }}>
-              <span style={{ fontSize:11, color:C.muted, fontWeight:700 }}>1인분 무게 <span style={{ opacity:0.7 }}>(선택)</span></span>
-              <button onClick={()=>setGuideOpen(true)} style={{ background:"none", border:"none", cursor:"pointer",
-                color:TYPES.push.color, fontSize:11, fontWeight:800, padding:0 }}>📏 얼마나인지 모르겠어요</button>
-            </div>
-            {CAT_PORTION_HINT[cf.cat] && (
-              <div style={{ fontSize:10.5, color:TYPES.push.color, background:tint(TYPES.push.color,0.1),
-                borderRadius:8, padding:"7px 10px", marginBottom:7, lineHeight:1.45 }}>
-                {cf.cat} 기준: {CAT_PORTION_HINT[cf.cat]}
-              </div>
-            )}
-            <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-              <LabeledInput label="1인분 = ?g" v={cf.gramsPerServing} on={(v)=>setCf({...cf,gramsPerServing:v})} />
-              <div style={{ display:"flex", gap:5 }}>
-                {[30,100,200,350].map((g)=>(
-                  <button key={g} onClick={()=>setCf({...cf, gramsPerServing:String(g)})} style={{...chip(String(g)===String(cf.gramsPerServing), TYPES.legs.color), padding:"7px 9px", fontSize:11.5}}>{g}</button>
-                ))}
-              </div>
-            </div>
-            <div style={{ fontSize:10.5, color:C.muted, marginTop:6, lineHeight:1.5 }}>
-              위에 적은 영양성분이 <b style={{color:C.text}}>몇 g 기준</b>인지예요. 비워두면 카테고리 평균으로 어림잡아서 "≈300g" 같이 부정확하게 표시돼요.
-            </div>
-
-            <div style={{ fontSize:11, color:C.muted, fontWeight:700, margin:"14px 0 6px" }}>수분량 <span style={{ opacity:0.7 }}>(음료일 때만 · 물 자동 반영)</span></div>
-            <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-              <LabeledInput label="수분 ml" v={cf.liquidMl} on={(v)=>setCf({...cf,liquidMl:v})} />
-              <div style={{ display:"flex", gap:5 }}>
-                {[250,355,500].map((ml)=>(
-                  <button key={ml} onClick={()=>setCf({...cf, liquidMl:String(ml)})} style={{...chip(String(ml)===String(cf.liquidMl), "#6BC5F0"), padding:"7px 9px", fontSize:11.5}}>{ml}</button>
-                ))}
-              </div>
-            </div>
-            <div style={{ fontSize:10.5, color:C.muted, marginTop:6, lineHeight:1.5 }}>
-              단백질 음료·주스 등 마시는 거면 ml를 넣어주세요. 추가할 때 물 트래커에 자동으로 더해져요. (음식이면 비워두세요.)
-            </div>
-            {num(cf.liquidMl)>0 && (
-              <div onClick={()=>setCf({...cf, fixedLiquid:!cf.fixedLiquid})}
-                style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginTop:8, padding:"10px 12px", borderRadius:10, cursor:"pointer",
-                  background: cf.fixedLiquid?tint("#6BC5F0",0.13):C.surface2, border:`1.5px solid ${cf.fixedLiquid?"#6BC5F0":C.line}` }}>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontSize:12.5, fontWeight:800, color: cf.fixedLiquid?"#6BC5F0":C.text }}>💧 수분 고정</div>
-                  <div style={{ fontSize:10.5, color:C.muted, marginTop:2, lineHeight:1.45 }}>보충제처럼 양(인분)이 늘어도 물은 그대로일 때. 켜면 몇 인분을 먹든 {num(cf.liquidMl)}ml만 반영돼요.</div>
-                </div>
-                <div style={{ width:40, height:23, borderRadius:99, flexShrink:0, background: cf.fixedLiquid?"#6BC5F0":C.line, position:"relative", transition:"background .2s" }}>
-                  <div style={{ width:19, height:19, borderRadius:"50%", background:"#fff", position:"absolute", top:2, left: cf.fixedLiquid?18:2, transition:"left .2s" }} />
-                </div>
-              </div>
-            )}
-
-            <button onClick={addCustomFood} disabled={!cf.name.trim()}
-              style={{...primary(TYPES.legs.color), width:"100%", marginTop:12, opacity:cf.name.trim()?1:0.45}}>
-              내 음식으로 저장
-            </button>
-          </>
-        )}
-      </Card>
 
       {/* 결과 헤더 */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", margin:"18px 2px 8px" }}>
@@ -3305,6 +3274,41 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule, favorites, m
               );
             })}
           </div>
+          {/* 이거 먹으면 오늘 목표가 어떻게 되는지 (3번) */}
+          {(target || kcalGoal) && (()=>{
+            const mult = multOf(e);
+            const addP = e.protein * mult, addK = e.kcal * mult;
+            const pAfter = target ? Math.round((eaten.protein + addP) / target.low * 100) : null;
+            const kAfter = kcalGoal ? Math.round((eaten.kcal + addK) / kcalGoal * 100) : null;
+            const over = (pAfter!=null && pAfter>=100) || (kAfter!=null && kAfter>100);
+            return (
+              <div style={{ display:"flex", gap:6, marginTop:8 }}>
+                {pAfter!=null && (
+                  <div style={{ flex:1, background: pAfter>=100?tint(TYPES.legs.color,0.12):C.surface2,
+                    border:`1px solid ${pAfter>=100?tint(TYPES.legs.color,0.4):C.line}`,
+                    borderRadius:9, padding:"7px 9px" }}>
+                    <div style={{ fontSize:9.5, color:C.muted }}>먹으면 단백질</div>
+                    <div style={{ fontSize:13, fontWeight:800, color: pAfter>=100?TYPES.legs.color:C.text }}>
+                      {pAfter}% <span style={{ fontSize:9.5, color:C.muted, fontWeight:600 }}>
+                        ({Math.round(eaten.protein+addP)}/{target.low}g)</span>
+                    </div>
+                  </div>
+                )}
+                {kAfter!=null && (
+                  <div style={{ flex:1, background: kAfter>100?tint(C.amber,0.1):C.surface2,
+                    border:`1px solid ${kAfter>100?tint(C.amber,0.4):C.line}`,
+                    borderRadius:9, padding:"7px 9px" }}>
+                    <div style={{ fontSize:9.5, color:C.muted }}>먹으면 칼로리</div>
+                    <div style={{ fontSize:13, fontWeight:800, color: kAfter>100?C.amber:C.text }}>
+                      {kAfter}% <span style={{ fontSize:9.5, color:C.muted, fontWeight:600 }}>
+                        ({Math.round(eaten.kcal+addK)}/{kcalGoal})</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* 지금 고른 양이 실제로 어느 정도인지 */}
           {(()=>{
             const mult = multOf(e);
@@ -3339,6 +3343,103 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule, favorites, m
           </button>
         </div>
       ))}
+
+      {/* 자주 쓰는 조합·직접 등록은 결과 아래에 — 검색이 먼저 보이도록 */}
+      {/* 식단 세트 — 매일 같은 조합을 원탭으로 */}
+      <MealSets sets={mealSets} mutate={mutate} addFoodsToday={addFoodsToday} schedule={schedule} />
+
+      {/* 내 음식 등록 */}
+      <Card>
+        <div onClick={()=>setAddOpen((v)=>!v)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", cursor:"pointer" }}>
+          <span style={lbl}>+ 내 음식 등록</span>
+          <span style={{ fontSize:14, color:C.muted, transform:addOpen?"rotate(180deg)":"none", transition:"transform .2s" }}>▾</span>
+        </div>
+        {addOpen && (
+          <>
+            <div style={{ fontSize:11.5, color:C.muted, marginTop:8, lineHeight:1.55 }}>
+              <b style={{color:C.text}}>1인분</b> 기준 영양성분을 넣어주세요. 이름엔 수량을 빼고요 —
+              "엄마표 닭갈비"로 저장하면 나중에 "엄마표 닭갈비 2인분"도 자동 계산돼요.
+            </div>
+
+            <div style={{ fontSize:11, color:C.muted, fontWeight:700, margin:"14px 0 6px" }}>음식 이름</div>
+            <input value={cf.name} onChange={(e)=>setCf({...cf,name:e.target.value})} placeholder="예: 엄마표 닭갈비"
+              style={{...inp, width:"100%", boxSizing:"border-box"}} />
+
+            <div style={{ fontSize:11, color:C.muted, fontWeight:700, margin:"14px 0 6px" }}>카테고리</div>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+              {CATEGORIES.map((c)=>(
+                <button key={c} onClick={()=>setCf({...cf, cat:c})} style={{...chip(cf.cat===c, TYPES.legs.color), padding:"7px 11px", fontSize:12}}>{c}</button>
+              ))}
+            </div>
+
+            <div style={{ fontSize:11, color:C.muted, fontWeight:700, margin:"14px 0 6px" }}>영양성분 (1인분)</div>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+              <LabeledInput label="단백질 g" v={cf.protein} on={(v)=>setCf({...cf,protein:v})} />
+              <LabeledInput label="탄수 g" v={cf.carbs} on={(v)=>setCf({...cf,carbs:v})} />
+              <LabeledInput label="당류 g" v={cf.sugar} on={(v)=>setCf({...cf,sugar:v})} />
+            </div>
+            <div style={{ display:"flex", gap:6, marginTop:8 }}>
+              <LabeledInput label="지방 g" v={cf.fat} on={(v)=>setCf({...cf,fat:v})} />
+              <LabeledInput label="칼로리 kcal" v={cf.kcal} on={(v)=>setCf({...cf,kcal:v})} />
+            </div>
+
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", margin:"14px 0 6px" }}>
+              <span style={{ fontSize:11, color:C.muted, fontWeight:700 }}>1인분 무게 <span style={{ opacity:0.7 }}>(선택)</span></span>
+              <button onClick={()=>setGuideOpen(true)} style={{ background:"none", border:"none", cursor:"pointer",
+                color:TYPES.push.color, fontSize:11, fontWeight:800, padding:0 }}>📏 얼마나인지 모르겠어요</button>
+            </div>
+            {CAT_PORTION_HINT[cf.cat] && (
+              <div style={{ fontSize:10.5, color:TYPES.push.color, background:tint(TYPES.push.color,0.1),
+                borderRadius:8, padding:"7px 10px", marginBottom:7, lineHeight:1.45 }}>
+                {cf.cat} 기준: {CAT_PORTION_HINT[cf.cat]}
+              </div>
+            )}
+            <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+              <LabeledInput label="1인분 = ?g" v={cf.gramsPerServing} on={(v)=>setCf({...cf,gramsPerServing:v})} />
+              <div style={{ display:"flex", gap:5 }}>
+                {[30,100,200,350].map((g)=>(
+                  <button key={g} onClick={()=>setCf({...cf, gramsPerServing:String(g)})} style={{...chip(String(g)===String(cf.gramsPerServing), TYPES.legs.color), padding:"7px 9px", fontSize:11.5}}>{g}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{ fontSize:10.5, color:C.muted, marginTop:6, lineHeight:1.5 }}>
+              위에 적은 영양성분이 <b style={{color:C.text}}>몇 g 기준</b>인지예요. 비워두면 카테고리 평균으로 어림잡아서 "≈300g" 같이 부정확하게 표시돼요.
+            </div>
+
+            <div style={{ fontSize:11, color:C.muted, fontWeight:700, margin:"14px 0 6px" }}>수분량 <span style={{ opacity:0.7 }}>(음료일 때만 · 물 자동 반영)</span></div>
+            <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+              <LabeledInput label="수분 ml" v={cf.liquidMl} on={(v)=>setCf({...cf,liquidMl:v})} />
+              <div style={{ display:"flex", gap:5 }}>
+                {[250,355,500].map((ml)=>(
+                  <button key={ml} onClick={()=>setCf({...cf, liquidMl:String(ml)})} style={{...chip(String(ml)===String(cf.liquidMl), "#6BC5F0"), padding:"7px 9px", fontSize:11.5}}>{ml}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{ fontSize:10.5, color:C.muted, marginTop:6, lineHeight:1.5 }}>
+              단백질 음료·주스 등 마시는 거면 ml를 넣어주세요. 추가할 때 물 트래커에 자동으로 더해져요. (음식이면 비워두세요.)
+            </div>
+            {num(cf.liquidMl)>0 && (
+              <div onClick={()=>setCf({...cf, fixedLiquid:!cf.fixedLiquid})}
+                style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginTop:8, padding:"10px 12px", borderRadius:10, cursor:"pointer",
+                  background: cf.fixedLiquid?tint("#6BC5F0",0.13):C.surface2, border:`1.5px solid ${cf.fixedLiquid?"#6BC5F0":C.line}` }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:12.5, fontWeight:800, color: cf.fixedLiquid?"#6BC5F0":C.text }}>💧 수분 고정</div>
+                  <div style={{ fontSize:10.5, color:C.muted, marginTop:2, lineHeight:1.45 }}>보충제처럼 양(인분)이 늘어도 물은 그대로일 때. 켜면 몇 인분을 먹든 {num(cf.liquidMl)}ml만 반영돼요.</div>
+                </div>
+                <div style={{ width:40, height:23, borderRadius:99, flexShrink:0, background: cf.fixedLiquid?"#6BC5F0":C.line, position:"relative", transition:"background .2s" }}>
+                  <div style={{ width:19, height:19, borderRadius:"50%", background:"#fff", position:"absolute", top:2, left: cf.fixedLiquid?18:2, transition:"left .2s" }} />
+                </div>
+              </div>
+            )}
+
+            <button onClick={addCustomFood} disabled={!cf.name.trim()}
+              style={{...primary(TYPES.legs.color), width:"100%", marginTop:12, opacity:cf.name.trim()?1:0.45}}>
+              내 음식으로 저장
+            </button>
+          </>
+        )}
+      </Card>
+
     </div>
   );
 }
@@ -4846,8 +4947,10 @@ function Body({ data, persist, mutate, target, latestWeight, tdee }) {
 
 // ================= 회복 · 주간 운동 목표 =================
 // 벌크 중엔 "더 많이"보다 "회복되는 만큼"이 중요해서, 경고와 목표를 함께 둔다.
-function RecoveryCard({ schedule, weekGoals, mutate, days }) {
+function RecoveryCard({ schedule, weekGoals, mutate, days, measurements }) {
   const rec = recoveryState(schedule);
+  const dl = deloadState(schedule);
+  const mr = measureReminder(measurements);
   const goalW = num(weekGoals?.workouts);
   const goalS = num(weekGoals?.sets);
   const doneW = days.filter(kk=>didWorkout(schedule[kk])).length;
@@ -4918,22 +5021,36 @@ function RecoveryCard({ schedule, weekGoals, mutate, days }) {
         ))}
       </div>
 
-      {/* 경고 */}
-      {rec.flags.length>0 ? (
-        <div style={{ marginTop:11, display:"flex", flexDirection:"column", gap:7 }}>
-          {rec.flags.map((f,i)=>(
-            <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", padding:"10px 12px", borderRadius:10,
-              background:tint(toneColor[f.tone],0.09), border:`1px solid ${tint(toneColor[f.tone],0.32)}` }}>
-              <span style={{ fontSize:13, lineHeight:1.35, flexShrink:0 }}>{f.tone==="bad"?"⚠️":"⚡"}</span>
-              <span style={{ fontSize:11.5, color:toneColor[f.tone], fontWeight:700, lineHeight:1.6 }}>{f.msg}</span>
+      {/* 경고 (회복 + 디로드 + 측정) */}
+      {(()=>{
+        const extra = [];
+        if (dl.due) extra.push({ tone:"bad",
+          msg:`${dl.hardWeeks}주째 고강도예요. 이번 주는 볼륨을 절반 정도로 낮추면 다음 주에 더 강해져요.` });
+        else if (dl.soon) extra.push({ tone:"warn",
+          msg:`${dl.hardWeeks}주 연속 고강도 — 다음 주쯤 가볍게 가는 주를 넣어보세요.` });
+        if (mr.never) extra.push({ tone:"warn", msg:"체중·체지방을 한 번 재두면 몸 탭에서 방향을 잡아드려요." });
+        else if (mr.due) extra.push({ tone:"warn",
+          msg:`${mr.daysAgo}일째 측정을 안 했어요. 주 1회는 재야 추세가 정확해져요.` });
+        const all = [...rec.flags, ...extra];
+        if (all.length === 0) {
+          return (
+            <div style={{ fontSize:11.5, color:TYPES.legs.color, fontWeight:600, marginTop:11 }}>
+              ✓ 회복·훈련 주기·측정 모두 괜찮아요. 지금 페이스를 유지하세요.
             </div>
-          ))}
-        </div>
-      ) : (
-        <div style={{ fontSize:11.5, color:TYPES.legs.color, fontWeight:600, marginTop:11 }}>
-          ✓ 연속 운동일·수면·휴식이 모두 괜찮아요. 지금 페이스를 유지하세요.
-        </div>
-      )}
+          );
+        }
+        return (
+          <div style={{ marginTop:11, display:"flex", flexDirection:"column", gap:7 }}>
+            {all.map((f,i)=>(
+              <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", padding:"10px 12px", borderRadius:10,
+                background:tint(toneColor[f.tone],0.09), border:`1px solid ${tint(toneColor[f.tone],0.32)}` }}>
+                <span style={{ fontSize:13, lineHeight:1.35, flexShrink:0 }}>{f.tone==="bad"?"⚠️":"⚡"}</span>
+                <span style={{ fontSize:11.5, color:toneColor[f.tone], fontWeight:700, lineHeight:1.6 }}>{f.msg}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
     </Card>
   );
 }
@@ -5018,6 +5135,42 @@ function LiftProgressCard({ schedule }) {
       ) : (
         <div style={{ fontSize:11.5, color:C.muted, marginTop:10 }}>
           같은 종목을 2회 이상 기록하면 추이 그래프가 나와요.
+        </div>
+      )}
+
+      {/* 최고 기록 갱신 이력 (7번) */}
+      {sel.prs.length>1 && (
+        <div style={{ marginTop:14 }}>
+          <div style={{ fontSize:11, color:C.muted, fontWeight:700, marginBottom:8 }}>
+            최고 기록 갱신 {sel.prs.length}회
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            {[...sel.prs].reverse().slice(0,6).map((pr,i,arr)=>{
+              const newest = i===0;
+              return (
+                <div key={pr.date} style={{ display:"flex", alignItems:"center", gap:9 }}>
+                  <span style={{ width:6, height:6, borderRadius:"50%", flexShrink:0,
+                    background: newest?TYPES.push.color:C.line }} />
+                  <span style={{ fontSize:10.5, color:C.muted, width:48, flexShrink:0 }}>
+                    {pr.date.slice(2).replace(/-/g,".")}
+                  </span>
+                  <span style={{ fontSize:12.5, fontWeight:800, color: newest?TYPES.push.color:C.text }}>
+                    {pr.w}kg<span style={{ fontSize:9.5, color:C.muted, fontWeight:600 }}>×{pr.r}</span>
+                  </span>
+                  {pr.gain!=null && (
+                    <span style={{ fontSize:10.5, fontWeight:800, color:TYPES.legs.color }}>+{pr.gain}kg</span>
+                  )}
+                  {newest && <span style={{ fontSize:9.5, color:TYPES.push.color, fontWeight:800, marginLeft:"auto" }}>최고</span>}
+                </div>
+              );
+            })}
+          </div>
+          {sel.prs.length>1 && (
+            <div style={{ fontSize:10.5, color:C.muted, marginTop:8, lineHeight:1.5 }}>
+              {sel.prs[0].date.slice(5).replace("-",".")} {sel.prs[0].w}kg에서 시작해
+              <b style={{ color:TYPES.legs.color }}> +{rd1(sel.bestW.w - sel.prs[0].w)}kg</b> 늘었어요.
+            </div>
+          )}
         </div>
       )}
 
@@ -5267,6 +5420,100 @@ function NutriRow({ label, value, target, color, overType, capLabel }) {
           <div style={{ width: `${pct}%`, height: "100%", background: over ? overColor : color, borderRadius: 99 }} />
         </div>
       )}
+    </div>
+  );
+}
+
+// 음식 필터 시트 — 검색 화면을 짧게 유지하려고 필터를 여기로 모았다
+function FoodFilterSheet({ catCounts, sortedGroups, sortedCatsOf, group, setGroup, cat, setCat,
+  nutri, setNutri, favOnly, setFavOnly, favCount, customCount, resultCount, onClose, onClear }) {
+  return (
+    <div onClick={onClose} style={sheetBg}>
+      <div onClick={(e)=>e.stopPropagation()} style={sheet}>
+        <div style={{ flexShrink:0 }}>
+          <div style={grip} />
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
+            <span style={{ fontSize:16, fontWeight:800 }}>필터</span>
+            <span style={{ fontSize:11.5, color:C.muted }}>{resultCount}개 표시 중</span>
+          </div>
+        </div>
+
+        <div style={{ flex:1, minHeight:0, overflowY:"auto", paddingRight:2, overscrollBehavior:"contain" }}>
+          {/* 내 목록 */}
+          {(favCount>0 || customCount>0) && (<>
+            <div style={{ fontSize:11.5, fontWeight:800, color:C.muted, marginBottom:7 }}>내 목록</div>
+            <div style={{ display:"flex", gap:6, marginBottom:16 }}>
+              {favCount>0 && (
+                <button onClick={()=>{ setFavOnly(!favOnly); setNutri(null); }}
+                  style={{...chip(favOnly, "#FFD24B"), flex:1, padding:"9px 0", fontSize:12}}>⭐ 즐겨찾기 {favCount}</button>
+              )}
+              {customCount>0 && (
+                <button onClick={()=>{ setCat(cat==="내 음식"?null:"내 음식"); setGroup(null); }}
+                  style={{...chip(cat==="내 음식", TYPES.legs.color), flex:1, padding:"9px 0", fontSize:12}}>내 음식 {customCount}</button>
+              )}
+            </div>
+          </>)}
+
+          {/* 영양 기준 */}
+          <div style={{ fontSize:11.5, fontWeight:800, color:C.muted, marginBottom:7 }}>영양 기준</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
+            {NUTRI_FILTERS.map((f)=>{
+              const on = nutri===f.key;
+              return (
+                <button key={f.key} onClick={()=>{ setNutri(on?null:f.key); setFavOnly(false); }}
+                  style={{ padding:"10px 9px", borderRadius:11, cursor:"pointer", textAlign:"left",
+                    border:`1.5px solid ${on?f.color:C.line}`, background:on?tint(f.color,0.14):C.surface2,
+                    color: on?f.color:C.text }}>
+                  <div style={{ fontSize:12.5, fontWeight:800 }}>{f.icon} {f.label}</div>
+                  <div style={{ fontSize:9.5, color:C.muted, marginTop:2, lineHeight:1.4 }}>{f.desc}</div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* 분류 */}
+          <div style={{ fontSize:11.5, fontWeight:800, color:C.muted, margin:"18px 0 7px" }}>
+            분류 <span style={{ fontWeight:600, opacity:0.75 }}>· 자주 쓰는 순</span>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+            {sortedGroups.map((g)=>{
+              const open = group===g.key;
+              const total = g.cats.reduce((n,c)=>n+(catCounts[c]||0),0);
+              return (
+                <div key={g.key}>
+                  <button onClick={()=>{ setGroup(open?null:g.key); setCat(null); }}
+                    style={{ width:"100%", display:"flex", alignItems:"center", gap:9, padding:"11px 12px",
+                      borderRadius:11, cursor:"pointer", textAlign:"left",
+                      border:`1.5px solid ${open?g.color:C.line}`,
+                      background: open?tint(g.color,0.13):C.surface2 }}>
+                    <span style={{ fontSize:18, flexShrink:0 }}>{g.icon}</span>
+                    <span style={{ flex:1, fontSize:13, fontWeight:800, color:open?g.color:C.text }}>{g.key}</span>
+                    <span style={{ fontSize:10.5, color:C.muted }}>{total}</span>
+                    <span style={{ fontSize:10, color:C.muted }}>{open?"▴":"▾"}</span>
+                  </button>
+                  {open && (
+                    <div style={{ display:"flex", gap:5, flexWrap:"wrap", padding:"8px 4px 2px" }}>
+                      {sortedCatsOf(g.key).map((c)=>(
+                        <button key={c} onClick={()=>setCat(cat===c?null:c)}
+                          style={{...chip(cat===c, g.color), padding:"6px 11px", fontSize:11.5}}>
+                          {catIcon(c)} {c} <span style={{ opacity:0.6 }}>{catCounts[c]}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ height:8 }} />
+        </div>
+
+        <div style={{ flexShrink:0, display:"flex", gap:8, padding:"12px 0 calc(14px + env(safe-area-inset-bottom))",
+          borderTop:`1px solid ${C.line}`, background:C.surface }}>
+          <button onClick={onClear} style={{...ghost, flex:1}}>초기화</button>
+          <button onClick={onClose} style={{...primary(TYPES.push.color), flex:2}}>{resultCount}개 보기</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -5953,6 +6200,49 @@ function Stats({ data, target, tdee, weight }) {
           </div>
         </div>
       </GlassCard>
+
+      {/* 단어장 진도 — 공부 탭에만 있으면 성과가 안 보여서 (13번) */}
+      {(data.vocab||[]).length>0 && (()=>{
+        const v = data.vocab;
+        const mastered = v.filter(isMastered).length;
+        const pct = Math.round(mastered/v.length*100);
+        const starred = v.filter(x=>x.starred).length;
+        const wrongN = v.filter(isOftenWrong).length;
+        const reviewedToday = v.filter(x=>x.lastReview===todayKey()).length;
+        // 기간 안에 복습한 단어 수
+        const reviewedInRange = v.filter(x=>x.lastReview && days.includes(x.lastReview)).length;
+        return (
+          <Card>
+            <Row><span style={lbl}>단어장 진도</span>
+              <span style={{ fontSize:11.5, color:C.muted }}>{v.length}개 등록</span>
+            </Row>
+            <div style={{ display:"flex", alignItems:"baseline", gap:8, marginTop:12 }}>
+              <span style={{ fontSize:30, fontWeight:800, color:STUDY_ACCENT, letterSpacing:-1 }}>{mastered}</span>
+              <span style={{ fontSize:13, color:C.muted }}>개 외움 ({pct}%)</span>
+            </div>
+            <div style={{ height:8, background:C.surface2, borderRadius:99, overflow:"hidden", marginTop:9 }}>
+              <div style={{ width:`${pct}%`, height:"100%", borderRadius:99,
+                background:`linear-gradient(90deg, ${tint(STUDY_ACCENT,0.5)}, ${STUDY_ACCENT})` }} />
+            </div>
+            <div style={{ display:"flex", gap:6, marginTop:11 }}>
+              {[["기간 내 복습", `${reviewedInRange}개`, STUDY_ACCENT],
+                ["오늘 복습", `${reviewedToday}개`, reviewedToday>0?TYPES.legs.color:C.muted],
+                ["⭐ 별표", `${starred}개`, "#FFD24B"],
+                ["자주 틀림", `${wrongN}개`, wrongN>0?C.danger:C.muted]].map(([label,val,col])=>(
+                <div key={label} style={{ flex:1, minWidth:0, background:C.surface2, borderRadius:10, padding:"9px 5px", textAlign:"center" }}>
+                  <div style={{ fontSize:9, color:C.muted, fontWeight:600 }}>{label}</div>
+                  <div style={{ fontSize:14, fontWeight:800, color:col, marginTop:2 }}>{val}</div>
+                </div>
+              ))}
+            </div>
+            {reviewedInRange===0 && (
+              <div style={{ fontSize:11, color:C.amber, marginTop:9, fontWeight:600 }}>
+                {rangeLabel(range)} 동안 복습한 단어가 없어요. 공부 탭에서 퀴즈를 풀어보세요.
+              </div>
+            )}
+          </Card>
+        );
+      })()}
 
       {/* 연속 기록 (스트릭) */}
       {anyStreak && (
