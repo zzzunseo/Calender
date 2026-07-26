@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { lookupLocalFoods, localBrandSearch, makeCustomEntry, searchAllFoods, allCategories, servingLabel, displayCat, CATEGORIES, gramsPerServing } from "./foodDB.js";
+import { lookupLocalFoods, localBrandSearch, makeCustomEntry, searchAllFoods, allCategories, servingLabel, displayCat, CATEGORIES, gramsPerServing, portionHint, HAND_GUIDE, CONTAINER_GUIDE, CAT_PORTION_HINT, CATEGORY_GROUPS, catIcon, categoryCounts, NUTRI_FILTERS, proteinPer100kcal, categoryUsage } from "./foodDB.js";
 
 // ================= 상수 =================
 const TYPES = {
@@ -269,6 +269,7 @@ const normalize = (d) => ({
   vocab: d.vocab || [],   // 단어장: [{id,type,term,meaning,note,tag,level,lastReview,reviewCount,created}]
   targetScore: d.targetScore || {},  // { "토익": 800 }
   weekGoals: d.weekGoals || {},      // { workouts: 4, sets: 80 }
+  mealSets: d.mealSets || [],        // 식단 세트: [{id,name,icon,items:[{name,protein,...}]}]
 });
 
 const NUTRI_PROMPT = `아래는 사용자가 먹은 음식/보충제(프로틴 쉐이크 등) 설명이야.
@@ -685,7 +686,7 @@ export default function App() {
       <div key={tab} className="tab-content">
         {tab==="today" && <Today data={data} updateDay={updateDay} addFoodsToday={addFoodsToday} target={proteinTarget()} tdee={computeTDEE(data.profile, latestWeight())} weight={latestWeight()} favProps={favProps} apiKey={data.profile.apiKey} customFoods={data.customFoods} mutate={mutate} />}
         {tab==="calendar" && <Calendar data={data} persist={persist} updateDay={updateDay} favProps={favProps} apiKey={data.profile.apiKey} customFoods={data.customFoods} routines={data.routines} mutate={mutate} />}
-        {tab==="foods" && <Foods addFoodsToday={addFoodsToday} apiKey={data.profile.apiKey} customFoods={data.customFoods} mutate={mutate} schedule={data.schedule} />}
+        {tab==="foods" && <Foods addFoodsToday={addFoodsToday} apiKey={data.profile.apiKey} customFoods={data.customFoods} mutate={mutate} schedule={data.schedule} favorites={data.favorites} mealSets={data.mealSets} />}
         {tab==="study" && <Study data={data} persist={persist} mutate={mutate} />}
         {tab==="stats" && <Stats data={data} target={proteinTarget()} tdee={computeTDEE(data.profile, latestWeight())} weight={latestWeight()} />}
         {tab==="body" && <Body data={data} persist={persist} mutate={mutate} target={proteinTarget()} latestWeight={latestWeight()} tdee={computeTDEE(data.profile, latestWeight())} />}
@@ -2818,7 +2819,7 @@ function SleepBlock({ value, onChange }) {
 }
 
 // ================= 음식 (검색 · 내 음식 · 외식추천) =================
-function Foods({ addFoodsToday, apiKey, customFoods, mutate, schedule }) {
+function Foods({ addFoodsToday, apiKey, customFoods, mutate, schedule, favorites, mealSets }) {
   const [mode, setMode] = useState("search");
   return (
     <div style={{ padding:"22px 18px 8px" }}>
@@ -2836,19 +2837,24 @@ function Foods({ addFoodsToday, apiKey, customFoods, mutate, schedule }) {
       </div>
 
       {mode==="search"
-        ? <FoodSearch addFoodsToday={addFoodsToday} customFoods={customFoods} mutate={mutate} schedule={schedule} />
+        ? <FoodSearch addFoodsToday={addFoodsToday} customFoods={customFoods} mutate={mutate} schedule={schedule} favorites={favorites||[]} mealSets={mealSets||[]} />
         : <Dining addFoodsToday={addFoodsToday} apiKey={apiKey} customFoods={customFoods} embedded />}
     </div>
   );
 }
 
-function FoodSearch({ addFoodsToday, customFoods, mutate, schedule }) {
+function FoodSearch({ addFoodsToday, customFoods, mutate, schedule, favorites, mealSets }) {
   const [q, setQ] = useState("");
   const [cat, setCat] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
   const [added, setAdded] = useState({});
   const [quickSort, setQuickSort] = useState("recent"); // recent | frequent
   const [quickAdded, setQuickAdded] = useState({});
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [group, setGroup] = useState(null);   // 선택한 큰 갈래
+  const [nutri, setNutri] = useState(null);   // 영양 기준 필터
+  const [favOnly, setFavOnly] = useState(false);
+  const [sortBy, setSortBy] = useState("default");
 
   // 지금까지 기록한 식단에서 최근·자주 먹은 음식 뽑기 (이름+영양 그대로 원탭 재등록용)
   const quickFoods = React.useMemo(()=>{
@@ -2879,8 +2885,37 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule }) {
   };
   const [cf, setCf] = useState({ name:"", cat:"기타", protein:"", carbs:"", sugar:"", fat:"", kcal:"", liquidMl:"", fixedLiquid:false, gramsPerServing:"" });
 
-  const cats = allCategories(customFoods);
-  const results = searchAllFoods(q, customFoods, cat);
+  const catCounts = React.useMemo(()=>categoryCounts(customFoods), [customFoods]);
+  // 내가 실제로 많이 쓴 분류를 앞으로 (4번)
+  const catUse = React.useMemo(()=>categoryUsage(schedule, customFoods), [schedule, customFoods]);
+  const groupUse = (g)=> g.cats.reduce((n,c)=>n+(catUse[c]||0), 0);
+  const sortedGroups = React.useMemo(()=>{
+    const arr = CATEGORY_GROUPS.filter(g=> g.cats.reduce((n,c)=>n+(catCounts[c]||0),0) > 0);
+    return [...arr].sort((a,b)=> groupUse(b)-groupUse(a));
+  }, [catCounts, catUse]);
+  const sortedCatsOf = (gk)=>{
+    const gc = CATEGORY_GROUPS.find(g=>g.key===gk)?.cats || [];
+    return gc.filter(c=>(catCounts[c]||0)>0).sort((a,b)=> (catUse[b]||0)-(catUse[a]||0));
+  };
+  // 카테고리(그룹/개별) + 영양 기준 + 즐겨찾기를 겹쳐서 적용
+  const results = React.useMemo(()=>{
+    let list = searchAllFoods(q, customFoods, cat==="내 음식" ? "내 음식" : cat);
+    if (!cat && group) {
+      const gc = CATEGORY_GROUPS.find(g=>g.key===group)?.cats || [];
+      list = list.filter(e=> gc.includes(displayCat(e)));
+    }
+    if (nutri) {
+      const f = NUTRI_FILTERS.find(x=>x.key===nutri);
+      if (f) list = list.filter(f.test);
+    }
+    if (favOnly) {
+      const favSet = new Set(favorites.map(f=>String(f.name||f.key||"").trim()));
+      list = list.filter(e=> favSet.has(String(e.key).trim()));
+    }
+    if (sortBy==="protein") list = [...list].sort((a,b)=> proteinPer100kcal(b)-proteinPer100kcal(a) || b.protein-a.protein);
+    else if (sortBy==="kcal") list = [...list].sort((a,b)=> a.kcal-b.kcal);
+    return list;
+  }, [q, customFoods, cat, group, nutri, favOnly, favorites, sortBy]);
 
   const [qty, setQty] = useState({}); // 항목별 선택 수량 (기본 1인분)
   const [gramMode, setGramMode] = useState({}); // 항목별 g 직접입력값 (있으면 g 기준)
@@ -2940,13 +2975,84 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule }) {
         {q && <span onClick={()=>setQ("")} style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", fontSize:18, color:C.muted, cursor:"pointer", lineHeight:1 }}>×</span>}
       </div>
 
-      {/* 카테고리 필터 */}
-      <div style={{ display:"flex", gap:6, marginTop:10, overflowX:"auto", paddingBottom:4, scrollbarWidth:"none" }}>
-        <button onClick={()=>setCat(null)} style={{...chip(cat===null, TYPES.push.color), flexShrink:0}}>전체</button>
-        {cats.map((c)=>(
-          <button key={c} onClick={()=>setCat(cat===c?null:c)} style={{...chip(cat===c, c==="내 음식"?TYPES.legs.color:TYPES.push.color), flexShrink:0}}>{c}</button>
+      {/* 영양 기준 빠른 필터 — 카테고리보다 이게 더 쓸모 있을 때가 많다 */}
+      <div style={{ display:"flex", gap:6, marginTop:10, overflowX:"auto", paddingBottom:2, scrollbarWidth:"none",
+        WebkitMaskImage:"linear-gradient(to right, #000 0, #000 calc(100% - 22px), transparent 100%)",
+        maskImage:"linear-gradient(to right, #000 0, #000 calc(100% - 22px), transparent 100%)" }}>
+        {favorites.length>0 && (
+          <button onClick={()=>{ setFavOnly(v=>!v); setNutri(null); }}
+            style={{...chip(favOnly, "#FFD24B"), flexShrink:0, padding:"6px 12px", fontSize:12}}>
+            ⭐ 즐겨찾기 {favorites.length}
+          </button>
+        )}
+        {NUTRI_FILTERS.map((f)=>(
+          <button key={f.key} onClick={()=>{ setNutri(nutri===f.key?null:f.key); setFavOnly(false); }}
+            title={f.desc}
+            style={{...chip(nutri===f.key, f.color), flexShrink:0, padding:"6px 12px", fontSize:12}}>
+            {f.icon} {f.label}
+          </button>
         ))}
       </div>
+      {nutri && (
+        <div style={{ fontSize:10.5, color:C.muted, marginTop:6 }}>
+          {NUTRI_FILTERS.find(f=>f.key===nutri)?.desc}
+        </div>
+      )}
+
+      {/* 카테고리 — 큰 갈래 먼저, 고르면 하위가 펼쳐진다 */}
+      <div style={{ display:"flex", gap:6, marginTop:9 }}>
+        <button onClick={()=>{ setGroup(null); setCat(null); }}
+          style={{...chip(group===null && cat===null, TYPES.push.color), flex:"0 0 auto", padding:"7px 13px", fontSize:12}}>전체</button>
+        {customFoods.length>0 && (
+          <button onClick={()=>{ setCat(cat==="내 음식"?null:"내 음식"); setGroup(null); }}
+            style={{...chip(cat==="내 음식", TYPES.legs.color), flex:"0 0 auto", padding:"7px 13px", fontSize:12}}>
+            ⭐ 내 음식 {customFoods.length}
+          </button>
+        )}
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:5, marginTop:6 }}>
+        {sortedGroups.map((g)=>{
+          const on = group===g.key;
+          const total = g.cats.reduce((n,c)=>n+(catCounts[c]||0),0);
+          const used = groupUse(g);
+          return (
+            <button key={g.key} onClick={()=>{ setGroup(on?null:g.key); setCat(null); }}
+              style={{ padding:"9px 2px", borderRadius:11, cursor:"pointer", textAlign:"center",
+                border:`1.5px solid ${on?g.color:C.line}`, background: on?tint(g.color,0.15):C.surface,
+                color: on?g.color:C.muted }}>
+              <div style={{ fontSize:17, lineHeight:1.1 }}>{g.icon}</div>
+              <div style={{ fontSize:9, fontWeight:800, marginTop:3, lineHeight:1.15, wordBreak:"keep-all" }}>{g.key}</div>
+              <div style={{ fontSize:8.5, color: used>0?g.color:C.muted, marginTop:1 }}>
+                {used>0 ? `${used}회` : total}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      {/* 고른 갈래의 하위 카테고리 */}
+      {group && (
+        <div style={{ display:"flex", gap:5, marginTop:7, flexWrap:"wrap" }}>
+          {sortedCatsOf(group).map((c)=>(
+            <button key={c} onClick={()=>setCat(cat===c?null:c)}
+              style={{...chip(cat===c, TYPES.push.color), padding:"6px 11px", fontSize:11.5}}>
+              {catIcon(c)} {c} <span style={{ opacity:0.65 }}>{catCounts[c]}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* 계량 도움말 진입 */}
+      <div style={{ display:"flex", justifyContent:"flex-end", marginTop:-4, marginBottom:10 }}>
+        <button onClick={()=>setGuideOpen(true)} style={{ background:"none", border:`1px solid ${C.line}`,
+          borderRadius:999, padding:"6px 12px", cursor:"pointer", color:C.muted, fontSize:11, fontWeight:700 }}>
+          📏 얼마나 먹었는지 재는 법
+        </button>
+      </div>
+
+      {guideOpen && <PortionGuideSheet onClose={()=>setGuideOpen(false)} />}
+
+      {/* 식단 세트 — 매일 같은 조합을 원탭으로 */}
+      <MealSets sets={mealSets} mutate={mutate} addFoodsToday={addFoodsToday} schedule={schedule} />
 
       {/* 빠른 추가 — 최근·자주 먹은 음식 */}
       {quickList.length>0 && !q && !cat && (
@@ -3014,7 +3120,17 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule }) {
               <LabeledInput label="칼로리 kcal" v={cf.kcal} on={(v)=>setCf({...cf,kcal:v})} />
             </div>
 
-            <div style={{ fontSize:11, color:C.muted, fontWeight:700, margin:"14px 0 6px" }}>1인분 무게 <span style={{ opacity:0.7 }}>(선택 · g 단위로 먹은 양 계산할 때 사용)</span></div>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", margin:"14px 0 6px" }}>
+              <span style={{ fontSize:11, color:C.muted, fontWeight:700 }}>1인분 무게 <span style={{ opacity:0.7 }}>(선택)</span></span>
+              <button onClick={()=>setGuideOpen(true)} style={{ background:"none", border:"none", cursor:"pointer",
+                color:TYPES.push.color, fontSize:11, fontWeight:800, padding:0 }}>📏 얼마나인지 모르겠어요</button>
+            </div>
+            {CAT_PORTION_HINT[cf.cat] && (
+              <div style={{ fontSize:10.5, color:TYPES.push.color, background:tint(TYPES.push.color,0.1),
+                borderRadius:8, padding:"7px 10px", marginBottom:7, lineHeight:1.45 }}>
+                {cf.cat} 기준: {CAT_PORTION_HINT[cf.cat]}
+              </div>
+            )}
             <div style={{ display:"flex", gap:6, alignItems:"center" }}>
               <LabeledInput label="1인분 = ?g" v={cf.gramsPerServing} on={(v)=>setCf({...cf,gramsPerServing:v})} />
               <div style={{ display:"flex", gap:5 }}>
@@ -3067,6 +3183,56 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule }) {
         <span style={{ fontSize:11.5, color:C.muted }}>{results.length}개</span>
       </div>
 
+      {/* 지금 걸린 필터 — 스크롤해도 뭐가 적용됐는지 보이게 (9번) */}
+      {(cat || group || nutri || favOnly || q.trim()) && (
+        <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginTop:11,
+          padding:"9px 11px", background:tint(TYPES.push.color,0.08),
+          border:`1px solid ${tint(TYPES.push.color,0.28)}`, borderRadius:11 }}>
+          <span style={{ fontSize:10.5, color:C.muted, fontWeight:700, flexShrink:0 }}>필터</span>
+          {q.trim() && (
+            <button onClick={()=>setQ("")} style={activeTagStyle(C.text)}>
+              🔍 {q.trim()} <span style={{ opacity:0.6 }}>✕</span>
+            </button>
+          )}
+          {favOnly && (
+            <button onClick={()=>setFavOnly(false)} style={activeTagStyle("#FFD24B")}>
+              ⭐ 즐겨찾기 <span style={{ opacity:0.6 }}>✕</span>
+            </button>
+          )}
+          {nutri && (()=>{ const f=NUTRI_FILTERS.find(x=>x.key===nutri); return (
+            <button onClick={()=>setNutri(null)} style={activeTagStyle(f.color)}>
+              {f.icon} {f.label} <span style={{ opacity:0.6 }}>✕</span>
+            </button>
+          ); })()}
+          {group && !cat && (()=>{ const g=CATEGORY_GROUPS.find(x=>x.key===group); return (
+            <button onClick={()=>setGroup(null)} style={activeTagStyle(g?g.color:TYPES.push.color)}>
+              {g?g.icon:""} {group} <span style={{ opacity:0.6 }}>✕</span>
+            </button>
+          ); })()}
+          {cat && (
+            <button onClick={()=>setCat(null)} style={activeTagStyle(cat==="내 음식"?TYPES.legs.color:TYPES.push.color)}>
+              {catIcon(cat)} {cat} <span style={{ opacity:0.6 }}>✕</span>
+            </button>
+          )}
+          <button onClick={()=>{ setQ(""); setCat(null); setGroup(null); setNutri(null); setFavOnly(false); }}
+            style={{ marginLeft:"auto", background:"none", border:"none", color:C.muted, fontSize:10.5,
+              fontWeight:700, cursor:"pointer", padding:"2px 4px", flexShrink:0 }}>전체 해제</button>
+        </div>
+      )}
+
+      {/* 결과 개수 + 정렬 */}
+      {results.length>0 && (
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:12, marginBottom:2 }}>
+          <span style={{ fontSize:11.5, color:C.muted, fontWeight:700 }}>{results.length}개</span>
+          <div style={{ display:"flex", gap:5 }}>
+            {[["default","기본"],["protein","단백질순"],["kcal","저칼로리순"]].map(([k,label])=>(
+              <button key={k} onClick={()=>setSortBy(k)}
+                style={{...chip(sortBy===k, TYPES.push.color), padding:"4px 10px", fontSize:10.5}}>{label}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 결과 목록 */}
       {results.length===0 ? (
         <Card>
@@ -3087,7 +3253,9 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule }) {
                 <span style={{ fontSize:15, fontWeight:800, letterSpacing:-0.2 }}>{e.key}</span>
                 {e.custom && <span style={{ fontSize:9.5, fontWeight:800, color:"#141519", background:TYPES.legs.color, borderRadius:5, padding:"2px 6px" }}>{e.aliases?.length>1?"수정됨":"내 음식"}</span>}
               </div>
-              <div style={{ fontSize:11, color:C.muted, marginTop:4 }}>{displayCat(e)} · {servingLabel(e)}</div>
+              <div style={{ fontSize:11, color:C.muted, marginTop:4 }}>
+                {catIcon(displayCat(e))} {displayCat(e)} · {servingLabel(e)}
+              </div>
             </div>
             <button onClick={()=>setEditKey(editKey===e.key?null:e.key)} title="수정" style={{ ...xBtn, fontSize:14 }}>✏️</button>
             {e.custom && <button onClick={()=>removeCustomFood(e.key)} style={xBtn}>×</button>}
@@ -3097,14 +3265,28 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule }) {
             <DBFoodEdit entry={e} onSave={(patch)=>saveEdit(e, patch)} onCancel={()=>setEditKey(null)} />
           )}
 
-          {/* 영양성분 표 */}
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(5, 1fr)", gap:4, marginTop:12,
-            background:C.surface2, borderRadius:10, padding:"10px 6px" }}>
-            <NutriCell label="단백질" value={`${e.protein}g`} color={TYPES.legs.color} />
-            <NutriCell label="탄수" value={`${e.carbs}g`} />
-            <NutriCell label="당류" value={`${e.sugar}g`} />
-            <NutriCell label="지방" value={`${e.fat}g`} />
-            <NutriCell label="칼로리" value={`${e.kcal}`} color={C.text} bold />
+          {/* 영양성분 — 단백질·칼로리를 크게, 나머지는 작게 */}
+          <div style={{ display:"flex", gap:6, marginTop:12 }}>
+            <div style={{ flex:1, background:tint(TYPES.legs.color,0.1), border:`1px solid ${tint(TYPES.legs.color,0.3)}`,
+              borderRadius:10, padding:"10px 8px", textAlign:"center" }}>
+              <div style={{ fontSize:9.5, color:C.muted, fontWeight:600 }}>단백질</div>
+              <div style={{ fontSize:19, fontWeight:800, color:TYPES.legs.color, lineHeight:1.2 }}>{e.protein}<span style={{ fontSize:10 }}>g</span></div>
+              {e.kcal>0 && <div style={{ fontSize:8.5, color:C.muted, marginTop:1 }}>100kcal당 {proteinPer100kcal(e)}g</div>}
+            </div>
+            <div style={{ flex:1, background:C.surface2, borderRadius:10, padding:"10px 8px", textAlign:"center" }}>
+              <div style={{ fontSize:9.5, color:C.muted, fontWeight:600 }}>칼로리</div>
+              <div style={{ fontSize:19, fontWeight:800, color:C.text, lineHeight:1.2 }}>{e.kcal}</div>
+              <div style={{ fontSize:8.5, color:C.muted, marginTop:1 }}>1회분 기준</div>
+            </div>
+            <div style={{ flex:1.3, background:C.surface2, borderRadius:10, padding:"8px 6px",
+              display:"flex", flexDirection:"column", justifyContent:"center", gap:3 }}>
+              {[["탄수",e.carbs,"#5AA9FF"],["당류",e.sugar,"#FF8FB0"],["지방",e.fat,"#FFB74B"]].map(([l,v,col])=>(
+                <div key={l} style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", padding:"0 3px" }}>
+                  <span style={{ fontSize:9.5, color:C.muted }}>{l}</span>
+                  <span style={{ fontSize:11.5, fontWeight:700, color:col }}>{v}g</span>
+                </div>
+              ))}
+            </div>
           </div>
 
           {e.liquidMl>0 && (
@@ -3123,6 +3305,22 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule }) {
               );
             })}
           </div>
+          {/* 지금 고른 양이 실제로 어느 정도인지 */}
+          {(()=>{
+            const mult = multOf(e);
+            const gTotal = Math.round(gramsPerServing(e) * mult);
+            const hint = portionHint(gTotal, displayCat(e));
+            if (!hint) return null;
+            return (
+              <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:7, padding:"7px 10px",
+                background:C.surface2, borderRadius:9 }}>
+                <span style={{ fontSize:12 }}>📏</span>
+                <span style={{ fontSize:11, color:C.muted, lineHeight:1.45 }}>
+                  약 <b style={{ color:C.text }}>{gTotal}g</b> · {hint}
+                </span>
+              </div>
+            );
+          })()}
           {/* g 직접 입력 */}
           <div style={{ display:"flex", gap:6, marginTop:6, alignItems:"center" }}>
             <span style={{ fontSize:11, color:C.muted, flexShrink:0 }}>또는 직접</span>
@@ -5073,6 +5271,195 @@ function NutriRow({ label, value, target, color, overType, capLabel }) {
   );
 }
 
+// ================= 식단 세트 =================
+// 매일 같은 조합(아침 세트 등)을 원탭으로 등록. 오늘 먹은 걸 그대로 세트로 저장할 수도 있다.
+function MealSets({ sets, mutate, addFoodsToday, schedule }) {
+  const [open, setOpen] = useState(false);
+  const [makeOpen, setMakeOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [icon, setIcon] = useState("🌅");
+  const [added, setAdded] = useState({});
+  const todayFoods = (schedule?.[todayKey()]?.foods) || [];
+  const ICONS = ["🌅","☀️","🌙","🍫","💪","🥗"];
+
+  const list = sets || [];
+  const sum = (items, k)=> Math.round(items.reduce((s,f)=>s+num(f[k]),0));
+
+  const saveSet = () => {
+    if (!name.trim() || todayFoods.length===0) return;
+    const items = todayFoods.map(f=>({ name:f.name, protein:num(f.protein), carbs:num(f.carbs),
+      sugar:num(f.sugar), fat:num(f.fat), kcal:num(f.kcal), liquidMl:num(f.liquidMl)||0 }));
+    mutate((prev)=>({ ...prev, mealSets:[...(prev.mealSets||[]), { id:uid(), name:name.trim(), icon, items }] }));
+    setName(""); setMakeOpen(false);
+  };
+  const removeSet = (id) => {
+    const t = list.find(x=>x.id===id);
+    mutate((prev)=>({ ...prev, mealSets:(prev.mealSets||[]).filter(x=>x.id!==id) }), t?`"${t.name}" 세트`:"세트");
+  };
+  const applySet = (st) => {
+    addFoodsToday(st.items.map(f=>({ ...f, id:uid() })));
+    setAdded((a)=>({ ...a, [st.id]:true }));
+    setTimeout(()=>setAdded((a)=>({ ...a, [st.id]:false })), 1400);
+  };
+
+  if (list.length===0 && !open) {
+    return (
+      <div style={{ marginBottom:12 }}>
+        <button onClick={()=>setOpen(true)} style={{...ghost, width:"100%", fontSize:12}}>
+          🍱 자주 먹는 조합을 세트로 저장하기
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <Card>
+      <Row><span style={lbl}>식단 세트</span>
+        <button onClick={()=>setMakeOpen(v=>!v)} style={{ background:"none", border:"none", color:TYPES.legs.color,
+          fontSize:12, fontWeight:800, cursor:"pointer", padding:0 }}>{makeOpen?"닫기":"+ 세트 만들기"}</button>
+      </Row>
+
+      {list.length>0 ? (
+        <div style={{ display:"flex", flexDirection:"column", gap:7, marginTop:11 }}>
+          {list.map((st)=>{
+            const done = added[st.id];
+            return (
+              <div key={st.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"11px 12px", borderRadius:11,
+                background: done?tint(TYPES.legs.color,0.12):C.surface2,
+                border:`1px solid ${done?TYPES.legs.color:C.line}` }}>
+                <span style={{ fontSize:19, flexShrink:0 }}>{st.icon||"🍱"}</span>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:800 }}>{st.name}</div>
+                  <div style={{ fontSize:10.5, color:C.muted, marginTop:2, overflow:"hidden",
+                    textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                    {st.items.length}개 · {sum(st.items,"kcal")}kcal · 단백질 {sum(st.items,"protein")}g
+                  </div>
+                  <div style={{ fontSize:10, color:C.muted, opacity:0.75, marginTop:2, overflow:"hidden",
+                    textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                    {st.items.map(f=>f.name).join(", ")}
+                  </div>
+                </div>
+                <button onClick={()=>applySet(st)} style={{...primary(done?TYPES.legs.color:TYPES.push.color),
+                  padding:"8px 13px", fontSize:11.5, flexShrink:0}}>{done?"추가됨 ✓":"추가"}</button>
+                <button onClick={()=>removeSet(st.id)} style={xBtn}>×</button>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div style={{ fontSize:12, color:C.muted, marginTop:10, lineHeight:1.6 }}>
+          아직 세트가 없어요. 오늘 먹은 걸 그대로 세트로 저장해두면 다음부터 한 번에 등록돼요.
+        </div>
+      )}
+
+      {makeOpen && (
+        <div style={{ marginTop:12, padding:"12px", background:C.surface2, borderRadius:11 }}>
+          {todayFoods.length===0 ? (
+            <div style={{ fontSize:12, color:C.muted, lineHeight:1.6 }}>
+              먼저 오늘 식단에 음식을 넣어주세요. <b style={{color:C.text}}>지금 오늘 먹은 목록</b>이 그대로 세트가 돼요.
+            </div>
+          ) : (<>
+            <div style={{ fontSize:11, color:C.muted, marginBottom:7, lineHeight:1.5 }}>
+              오늘 먹은 {todayFoods.length}개({sum(todayFoods,"kcal")}kcal)를 세트로 저장해요.
+            </div>
+            <div style={{ display:"flex", gap:5, marginBottom:8 }}>
+              {ICONS.map((ic)=>(
+                <button key={ic} onClick={()=>setIcon(ic)}
+                  style={{ flex:1, padding:"7px 0", borderRadius:9, cursor:"pointer", fontSize:16,
+                    border:`1.5px solid ${icon===ic?TYPES.legs.color:C.line}`,
+                    background: icon===ic?tint(TYPES.legs.color,0.14):C.surface }}>{ic}</button>
+              ))}
+            </div>
+            <input value={name} onChange={(e)=>setName(e.target.value)} placeholder="세트 이름 (예: 아침 세트)"
+              style={{...inp, width:"100%", boxSizing:"border-box"}} />
+            <button onClick={saveSet} disabled={!name.trim()}
+              style={{...primary(TYPES.legs.color), width:"100%", marginTop:8, opacity:name.trim()?1:0.45}}>
+              이 조합 저장
+            </button>
+          </>)}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ================= 계량 기준 가이드 =================
+// "얼마나 먹었지?"가 가장 막히는 지점이라, 손·그릇 기준을 한 곳에 모아둔다.
+function PortionGuideSheet({ onClose }) {
+  return (
+    <div onClick={onClose} style={sheetBg}>
+      <div onClick={(e)=>e.stopPropagation()} style={sheet}>
+        <div style={{ flexShrink:0 }}>
+          <div style={grip} />
+          <div style={{ fontSize:16, fontWeight:800 }}>📏 얼마나 먹었는지 재는 법</div>
+          <div style={{ fontSize:11, color:C.muted, marginTop:4, marginBottom:12 }}>
+            저울이 없어도 손과 그릇으로 꽤 정확하게 어림할 수 있어요.
+          </div>
+        </div>
+
+        <div style={{ flex:1, minHeight:0, overflowY:"auto", paddingRight:2, overscrollBehavior:"contain" }}>
+          {/* 손 기준 */}
+          <div style={{ fontSize:12, fontWeight:800, color:TYPES.push.color, marginBottom:8 }}>손으로 재기</div>
+          <div style={{ fontSize:10.5, color:C.muted, marginBottom:9, lineHeight:1.5 }}>
+            손은 항상 가지고 다니고 체격에 비례해서, 개인 기준으로 쓰기 좋아요.
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+            {HAND_GUIDE.map((h)=>(
+              <div key={h.name} style={{ display:"flex", gap:11, alignItems:"flex-start",
+                background:C.surface2, borderRadius:11, padding:"11px 12px" }}>
+                <span style={{ fontSize:22, lineHeight:1.1, flexShrink:0 }}>{h.icon}</span>
+                <div style={{ minWidth:0 }}>
+                  <div style={{ fontSize:12.5, fontWeight:800 }}>{h.name} = {h.amount}</div>
+                  <div style={{ fontSize:10.5, color:C.muted, marginTop:3, lineHeight:1.5 }}>{h.note}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* 그릇 기준 */}
+          <div style={{ fontSize:12, fontWeight:800, color:TYPES.pull.color, margin:"18px 0 8px" }}>집에 있는 그릇으로 재기</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:7 }}>
+            {CONTAINER_GUIDE.map((c)=>(
+              <div key={c.name} style={{ background:C.surface2, borderRadius:10, padding:"10px 11px" }}>
+                <div style={{ fontSize:11.5, fontWeight:700 }}>{c.name}</div>
+                <div style={{ fontSize:11, color:TYPES.pull.color, fontWeight:800, marginTop:3 }}>{c.amount}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* 카테고리별 1인분 */}
+          <div style={{ fontSize:12, fontWeight:800, color:TYPES.legs.color, margin:"18px 0 8px" }}>보통 1인분은 이 정도</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+            {Object.entries(CAT_PORTION_HINT).map(([cat,hint])=>(
+              <div key={cat} style={{ display:"flex", gap:9, alignItems:"baseline", padding:"7px 0",
+                borderBottom:`1px solid ${C.line}` }}>
+                <span style={{ fontSize:11.5, fontWeight:700, width:82, flexShrink:0 }}>{cat}</span>
+                <span style={{ fontSize:11, color:C.muted, lineHeight:1.5 }}>{hint}</span>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ marginTop:16, padding:"12px 13px", borderRadius:11, background:tint(TYPES.push.color,0.09),
+            border:`1px solid ${tint(TYPES.push.color,0.3)}` }}>
+            <div style={{ fontSize:11.5, fontWeight:800, color:TYPES.push.color, marginBottom:5 }}>💡 정확도보다 꾸준함</div>
+            <div style={{ fontSize:11, color:C.muted, lineHeight:1.65 }}>
+              매번 정확히 재려다 지쳐서 기록을 놓치는 게 더 손해예요.
+              같은 기준으로 꾸준히 어림잡으면, 오차가 일정해서 <b style={{color:C.text}}>추세는 정확하게</b> 나와요.
+              자주 먹는 음식만 한 번 저울로 재서 등록해두면 그다음부터는 편해져요.
+            </div>
+          </div>
+          <div style={{ height:8 }} />
+        </div>
+
+        <div style={{ flexShrink:0, padding:"12px 0 calc(14px + env(safe-area-inset-bottom))",
+          borderTop:`1px solid ${C.line}`, background:C.surface }}>
+          <button onClick={onClose} style={{...primary(TYPES.push.color), width:"100%"}}>닫기</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ================= 공용: 식단 섹션 =================
 function FoodSection({ foods, addFoods, removeFood, updateFood, favorites, addFavorite, removeFavorite, compact, apiKey, customFoods }) {
   const [editId, setEditId] = useState(null);
@@ -6049,6 +6436,13 @@ function Collapsible({ title, summary, accent, defaultOpen=false, children }) {
     </div>
   );
 }
+
+// 지금 적용된 필터를 보여주는 태그 (탭하면 해제)
+const activeTagStyle = (col) => ({
+  display:"inline-flex", alignItems:"center", gap:4, background:tint(col,0.16),
+  border:`1px solid ${tint(col,0.45)}`, color:col, borderRadius:999,
+  padding:"4px 9px", fontSize:10.5, fontWeight:800, cursor:"pointer", whiteSpace:"nowrap",
+});
 
 const SecLabel = ({children}) => <div style={{ fontSize:12, fontWeight:800, color:C.muted, margin:"18px 0 8px" }}>{children}</div>;
 const Field = ({label,v,on}) => (

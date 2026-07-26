@@ -47,12 +47,12 @@ export const FOOD_DB = [
   { cat:"기본재료", key:"아보카도", aliases:["아보카도"], unit:"count", baseQty:1, protein:2.7, carbs:12, sugar:1, fat:21, kcal:230 },
 
   // ---- 계란/유제품/보충제 (개당·스쿱당) ----
-  { cat:"유제품·보충제", key:"삶은 계란", aliases:["삶은계란","삶은 계란","계란","달걀"], unit:"count", baseQty:1, protein:6.5, carbs:0.5, sugar:0.5, fat:5, kcal:70 },
-  { cat:"유제품·보충제", key:"계란후라이", aliases:["계란후라이","계란 후라이","후라이"], unit:"count", baseQty:1, protein:6.5, carbs:0.5, sugar:0.3, fat:7, kcal:90 },
+  { cat:"유제품·보충제", key:"삶은 계란", aliases:["삶은계란","삶은 계란","계란","달걀"], unit:"count", baseQty:1, protein:6.5, carbs:0.5, sugar:0.5, fat:5, kcal:70, gramsPerServing:50 },
+  { cat:"유제품·보충제", key:"계란후라이", aliases:["계란후라이","계란 후라이","후라이"], unit:"count", baseQty:1, protein:6.5, carbs:0.5, sugar:0.3, fat:7, kcal:90, gramsPerServing:50 },
   { cat:"유제품·보충제", key:"우유", aliases:["우유"], unit:"gram", baseQty:200, protein:6.6, carbs:9.4, sugar:9.4, fat:6.8, kcal:130, liquidMl:200 },
   { cat:"유제품·보충제", key:"두유", aliases:["두유"], unit:"gram", baseQty:200, protein:7, carbs:9, sugar:6, fat:4, kcal:100, liquidMl:200 },
   { cat:"유제품·보충제", key:"프로틴쉐이크(WPI)", aliases:["프로틴","단백질쉐이크","웨이프로틴","쉐이크","프로틴쉐이크","프로틴 쉐이크"], unit:"count", baseQty:1, protein:24, carbs:3, sugar:1, fat:1, kcal:120, liquidMl:250, fixedLiquid:true },
-  { cat:"유제품·보충제", key:"체다치즈", aliases:["치즈","체다치즈"], unit:"count", baseQty:1, protein:4, carbs:1, sugar:0.5, fat:6, kcal:70 },
+  { cat:"유제품·보충제", key:"체다치즈", aliases:["치즈","체다치즈"], unit:"count", baseQty:1, protein:4, carbs:1, sugar:0.5, fat:6, kcal:70, gramsPerServing:20 },
 
   // ---- 한식 (1인분 기준) ----
   { cat:"한식", key:"제육볶음", aliases:["제육볶음"], unit:"count", baseQty:1, protein:25, carbs:20, sugar:8, fat:22, kcal:400 },
@@ -192,11 +192,11 @@ export const FOOD_DB = [
   { cat:"피자", key:"고구마피자", aliases:["고구마피자"], unit:"count", baseQty:1, protein:10, carbs:42, sugar:10, fat:12, kcal:320 },
 
   // ---- 서브웨이 (15cm 기준) ----
-  { cat:"빵류", key:"서브웨이 이탈리안비엠티", aliases:["이탈리안비엠티","비엠티","BMT"], brand:"서브웨이", unit:"count", baseQty:1, protein:20, carbs:44, sugar:7, fat:16, kcal:410 },
-  { cat:"빵류", key:"서브웨이 터키", aliases:["서브웨이 터키","터키샌드위치"], brand:"서브웨이", unit:"count", baseQty:1, protein:18, carbs:44, sugar:6, fat:4, kcal:280 },
-  { cat:"빵류", key:"서브웨이 로티세리치킨", aliases:["로티세리","로티세리치킨"], brand:"서브웨이", unit:"count", baseQty:1, protein:29, carbs:43, sugar:6, fat:6, kcal:350 },
-  { cat:"빵류", key:"서브웨이 에그마요", aliases:["에그마요"], brand:"서브웨이", unit:"count", baseQty:1, protein:14, carbs:42, sugar:5, fat:18, kcal:400 },
-  { cat:"빵류", key:"서브웨이 참치", aliases:["서브웨이 참치","참치샌드위치"], brand:"서브웨이", unit:"count", baseQty:1, protein:19, carbs:41, sugar:5, fat:24, kcal:480 },
+  { cat:"빵류", key:"서브웨이 이탈리안비엠티", aliases:["이탈리안비엠티","비엠티","BMT"], brand:"서브웨이", unit:"count", baseQty:1, protein:20, carbs:44, sugar:7, fat:16, kcal:410, gramsPerServing:230 },
+  { cat:"빵류", key:"서브웨이 터키", aliases:["서브웨이 터키","터키샌드위치"], brand:"서브웨이", unit:"count", baseQty:1, protein:18, carbs:44, sugar:6, fat:4, kcal:280, gramsPerServing:220 },
+  { cat:"빵류", key:"서브웨이 로티세리치킨", aliases:["로티세리","로티세리치킨"], brand:"서브웨이", unit:"count", baseQty:1, protein:29, carbs:43, sugar:6, fat:6, kcal:350, gramsPerServing:240 },
+  { cat:"빵류", key:"서브웨이 에그마요", aliases:["에그마요"], brand:"서브웨이", unit:"count", baseQty:1, protein:14, carbs:42, sugar:5, fat:18, kcal:400, gramsPerServing:240 },
+  { cat:"빵류", key:"서브웨이 참치", aliases:["서브웨이 참치","참치샌드위치"], brand:"서브웨이", unit:"count", baseQty:1, protein:19, carbs:41, sugar:5, fat:24, kcal:480, gramsPerServing:240 },
 
   // ---- 편의점 ----
   { cat:"편의점", key:"삼각김밥", aliases:["삼각김밥"], brand:"편의점", unit:"count", baseQty:1, protein:4, carbs:38, sugar:2, fat:4, kcal:200 },
@@ -219,23 +219,23 @@ export const FOOD_DB = [
   { cat:"카페", key:"초코우유", aliases:["초코우유"], unit:"count", baseQty:1, protein:6, carbs:22, sugar:20, fat:5, kcal:170, liquidMl:240 },
 
   // ---- 간식 ----
-  { cat:"간식", key:"새우깡", aliases:["새우깡"], unit:"count", baseQty:1, protein:6, carbs:60, sugar:5, fat:18, kcal:460 },
-  { cat:"간식", key:"포카칩", aliases:["포카칩"], unit:"count", baseQty:1, protein:6, carbs:55, sugar:3, fat:28, kcal:480 },
-  { cat:"간식", key:"초코파이", aliases:["초코파이"], unit:"count", baseQty:1, protein:2, carbs:20, sugar:14, fat:5, kcal:140 },
-  { cat:"간식", key:"오레오", aliases:["오레오"], unit:"count", baseQty:1, protein:1, carbs:10, sugar:6, fat:3, kcal:70 },
-  { cat:"간식", key:"프로틴바", aliases:["프로틴바","단백질바"], unit:"count", baseQty:1, protein:20, carbs:22, sugar:3, fat:8, kcal:220 },
-  { cat:"간식", key:"에너지바", aliases:["에너지바"], unit:"count", baseQty:1, protein:8, carbs:35, sugar:15, fat:9, kcal:250 },
-  { cat:"간식", key:"허니버터칩", aliases:["허니버터칩"], unit:"count", baseQty:1, protein:4, carbs:40, sugar:8, fat:22, kcal:360 },
-  { cat:"간식", key:"홈런볼", aliases:["홈런볼"], unit:"count", baseQty:1, protein:3, carbs:25, sugar:14, fat:12, kcal:220 },
-  { cat:"간식", key:"빼빼로", aliases:["빼빼로"], unit:"count", baseQty:1, protein:4, carbs:35, sugar:20, fat:12, kcal:260 },
-  { cat:"간식", key:"초콜릿바", aliases:["초콜릿","가나초콜릿","초코바"], unit:"count", baseQty:1, protein:2, carbs:18, sugar:16, fat:9, kcal:160 },
-  { cat:"간식", key:"아이스크림콘", aliases:["아이스크림","월드콘","붕어싸만코"], unit:"count", baseQty:1, protein:4, carbs:30, sugar:20, fat:12, kcal:250 },
-  { cat:"간식", key:"메로나", aliases:["메로나"], unit:"count", baseQty:1, protein:1, carbs:16, sugar:13, fat:2, kcal:85 },
-  { cat:"간식", key:"마카롱", aliases:["마카롱"], unit:"count", baseQty:1, protein:2, carbs:20, sugar:17, fat:6, kcal:140 },
-  { cat:"간식", key:"소금빵", aliases:["소금빵"], unit:"count", baseQty:1, protein:5, carbs:30, sugar:3, fat:14, kcal:270 },
-  { cat:"간식", key:"크로플", aliases:["크로플"], unit:"count", baseQty:1, protein:5, carbs:35, sugar:12, fat:18, kcal:330 },
-  { cat:"간식", key:"붕어빵", aliases:["붕어빵"], unit:"count", baseQty:1, protein:3, carbs:22, sugar:9, fat:2, kcal:120 },
-  { cat:"간식", key:"약과", aliases:["약과"], unit:"count", baseQty:1, protein:1, carbs:20, sugar:12, fat:6, kcal:140 },
+  { cat:"간식", key:"새우깡", aliases:["새우깡"], unit:"count", baseQty:1, protein:6, carbs:60, sugar:5, fat:18, kcal:460, gramsPerServing:90 },
+  { cat:"간식", key:"포카칩", aliases:["포카칩"], unit:"count", baseQty:1, protein:6, carbs:55, sugar:3, fat:28, kcal:480, gramsPerServing:87 },
+  { cat:"간식", key:"초코파이", aliases:["초코파이"], unit:"count", baseQty:1, protein:2, carbs:20, sugar:14, fat:5, kcal:140, gramsPerServing:35 },
+  { cat:"간식", key:"오레오", aliases:["오레오"], unit:"count", baseQty:1, protein:1, carbs:10, sugar:6, fat:3, kcal:70, gramsPerServing:15 },
+  { cat:"간식", key:"프로틴바", aliases:["프로틴바","단백질바"], unit:"count", baseQty:1, protein:20, carbs:22, sugar:3, fat:8, kcal:220, gramsPerServing:50 },
+  { cat:"간식", key:"에너지바", aliases:["에너지바"], unit:"count", baseQty:1, protein:8, carbs:35, sugar:15, fat:9, kcal:250, gramsPerServing:45 },
+  { cat:"간식", key:"허니버터칩", aliases:["허니버터칩"], unit:"count", baseQty:1, protein:4, carbs:40, sugar:8, fat:22, kcal:360, gramsPerServing:60 },
+  { cat:"간식", key:"홈런볼", aliases:["홈런볼"], unit:"count", baseQty:1, protein:3, carbs:25, sugar:14, fat:12, kcal:220, gramsPerServing:46 },
+  { cat:"간식", key:"빼빼로", aliases:["빼빼로"], unit:"count", baseQty:1, protein:4, carbs:35, sugar:20, fat:12, kcal:260, gramsPerServing:52 },
+  { cat:"간식", key:"초콜릿바", aliases:["초콜릿","가나초콜릿","초코바"], unit:"count", baseQty:1, protein:2, carbs:18, sugar:16, fat:9, kcal:160, gramsPerServing:45 },
+  { cat:"간식", key:"아이스크림콘", aliases:["아이스크림","월드콘","붕어싸만코"], unit:"count", baseQty:1, protein:4, carbs:30, sugar:20, fat:12, kcal:250, gramsPerServing:150 },
+  { cat:"간식", key:"메로나", aliases:["메로나"], unit:"count", baseQty:1, protein:1, carbs:16, sugar:13, fat:2, kcal:85, gramsPerServing:80 },
+  { cat:"간식", key:"마카롱", aliases:["마카롱"], unit:"count", baseQty:1, protein:2, carbs:20, sugar:17, fat:6, kcal:140, gramsPerServing:25 },
+  { cat:"간식", key:"소금빵", aliases:["소금빵"], unit:"count", baseQty:1, protein:5, carbs:30, sugar:3, fat:14, kcal:270, gramsPerServing:80 },
+  { cat:"간식", key:"크로플", aliases:["크로플"], unit:"count", baseQty:1, protein:5, carbs:35, sugar:12, fat:18, kcal:330, gramsPerServing:100 },
+  { cat:"간식", key:"붕어빵", aliases:["붕어빵"], unit:"count", baseQty:1, protein:3, carbs:22, sugar:9, fat:2, kcal:120, gramsPerServing:70 },
+  { cat:"간식", key:"약과", aliases:["약과"], unit:"count", baseQty:1, protein:1, carbs:20, sugar:12, fat:6, kcal:140, gramsPerServing:40 },
 
   // ---- 분식 (1인분 기준) ----
   { cat:"분식", key:"라볶이", aliases:["라볶이"], unit:"count", baseQty:1, protein:14, carbs:95, sugar:18, fat:16, kcal:600 },
@@ -290,15 +290,15 @@ export const FOOD_DB = [
   { cat:"샐러드·건강식", key:"과일 샐러드", aliases:["과일샐러드","과일 샐러드"], unit:"count", baseQty:1, protein:2, carbs:30, sugar:24, fat:2, kcal:150 },
 
   // ---- 빵류 (1개 기준) ----
-  { cat:"빵류", key:"크루아상", aliases:["크루아상"], unit:"count", baseQty:1, protein:5, carbs:26, sugar:6, fat:14, kcal:250 },
-  { cat:"빵류", key:"단팥빵", aliases:["단팥빵"], unit:"count", baseQty:1, protein:6, carbs:50, sugar:22, fat:6, kcal:280 },
-  { cat:"빵류", key:"크림빵", aliases:["크림빵"], unit:"count", baseQty:1, protein:6, carbs:48, sugar:20, fat:10, kcal:310 },
-  { cat:"빵류", key:"소보로빵", aliases:["소보로빵","곰보빵"], unit:"count", baseQty:1, protein:6, carbs:52, sugar:18, fat:12, kcal:330 },
-  { cat:"빵류", key:"모닝빵", aliases:["모닝빵"], unit:"count", baseQty:1, protein:3, carbs:18, sugar:3, fat:2, kcal:100 },
-  { cat:"빵류", key:"바게트", aliases:["바게트"], unit:"count", baseQty:1, protein:3, carbs:15, sugar:0, fat:0.5, kcal:80 },
-  { cat:"빵류", key:"치아바타", aliases:["치아바타"], unit:"count", baseQty:1, protein:9, carbs:52, sugar:2, fat:4, kcal:270 },
-  { cat:"빵류", key:"에그샌드위치", aliases:["에그샌드위치","계란샌드위치"], unit:"count", baseQty:1, protein:14, carbs:35, sugar:5, fat:18, kcal:360 },
-  { cat:"빵류", key:"클럽샌드위치", aliases:["클럽샌드위치"], unit:"count", baseQty:1, protein:24, carbs:40, sugar:6, fat:20, kcal:450 },
+  { cat:"빵류", key:"크루아상", aliases:["크루아상"], unit:"count", baseQty:1, protein:5, carbs:26, sugar:6, fat:14, kcal:250, gramsPerServing:60 },
+  { cat:"빵류", key:"단팥빵", aliases:["단팥빵"], unit:"count", baseQty:1, protein:6, carbs:50, sugar:22, fat:6, kcal:280, gramsPerServing:90 },
+  { cat:"빵류", key:"크림빵", aliases:["크림빵"], unit:"count", baseQty:1, protein:6, carbs:48, sugar:20, fat:10, kcal:310, gramsPerServing:90 },
+  { cat:"빵류", key:"소보로빵", aliases:["소보로빵","곰보빵"], unit:"count", baseQty:1, protein:6, carbs:52, sugar:18, fat:12, kcal:330, gramsPerServing:90 },
+  { cat:"빵류", key:"모닝빵", aliases:["모닝빵"], unit:"count", baseQty:1, protein:3, carbs:18, sugar:3, fat:2, kcal:100, gramsPerServing:30 },
+  { cat:"빵류", key:"바게트", aliases:["바게트"], unit:"count", baseQty:1, protein:3, carbs:15, sugar:0, fat:0.5, kcal:80, gramsPerServing:250 },
+  { cat:"빵류", key:"치아바타", aliases:["치아바타"], unit:"count", baseQty:1, protein:9, carbs:52, sugar:2, fat:4, kcal:270, gramsPerServing:100 },
+  { cat:"빵류", key:"에그샌드위치", aliases:["에그샌드위치","계란샌드위치"], unit:"count", baseQty:1, protein:14, carbs:35, sugar:5, fat:18, kcal:360, gramsPerServing:180 },
+  { cat:"빵류", key:"클럽샌드위치", aliases:["클럽샌드위치"], unit:"count", baseQty:1, protein:24, carbs:40, sugar:6, fat:20, kcal:450, gramsPerServing:250 },
 
   // ---- 음료 (1잔/1캔 기준) ----
   { cat:"음료", key:"제로사이다", aliases:["제로사이다","사이다제로"], unit:"count", baseQty:1, protein:0, carbs:0, sugar:0, fat:0, kcal:0, liquidMl:355 },
@@ -366,18 +366,18 @@ export const FOOD_DB = [
   { cat:"국·탕", key:"미역국", aliases:["미역국"], unit:"count", baseQty:1, protein:8, carbs:10, sugar:2, fat:6, kcal:130 },
   { cat:"국·탕", key:"북엇국", aliases:["북엇국","북어국"], unit:"count", baseQty:1, protein:14, carbs:8, sugar:1, fat:5, kcal:140 },
   { cat:"국·탕", key:"콩나물국", aliases:["콩나물국"], unit:"count", baseQty:1, protein:5, carbs:8, sugar:2, fat:2, kcal:70 },
-  { cat:"국·탕", key:"순댓국", aliases:["순댓국","순대국밥"], unit:"count", baseQty:1, protein:28, carbs:50, sugar:3, fat:22, kcal:520 },
-  { cat:"국·탕", key:"육개장", aliases:["육개장"], unit:"count", baseQty:1, protein:24, carbs:45, sugar:3, fat:18, kcal:450 },
-  { cat:"국·탕", key:"추어탕", aliases:["추어탕"], unit:"count", baseQty:1, protein:26, carbs:40, sugar:3, fat:15, kcal:420 },
-  { cat:"국·탕", key:"곰탕", aliases:["곰탕"], unit:"count", baseQty:1, protein:26, carbs:48, sugar:1, fat:12, kcal:410 },
-  { cat:"국·탕", key:"떡만둣국", aliases:["떡만둣국","만둣국"], unit:"count", baseQty:1, protein:16, carbs:82, sugar:3, fat:12, kcal:520 },
+  { cat:"국·탕", key:"순댓국", aliases:["순댓국","순대국밥"], unit:"count", baseQty:1, protein:28, carbs:50, sugar:3, fat:22, kcal:520, gramsPerServing:700 },
+  { cat:"국·탕", key:"육개장", aliases:["육개장"], unit:"count", baseQty:1, protein:24, carbs:45, sugar:3, fat:18, kcal:450, gramsPerServing:600 },
+  { cat:"국·탕", key:"추어탕", aliases:["추어탕"], unit:"count", baseQty:1, protein:26, carbs:40, sugar:3, fat:15, kcal:420, gramsPerServing:600 },
+  { cat:"국·탕", key:"곰탕", aliases:["곰탕"], unit:"count", baseQty:1, protein:26, carbs:48, sugar:1, fat:12, kcal:410, gramsPerServing:600 },
+  { cat:"국·탕", key:"떡만둣국", aliases:["떡만둣국","만둣국"], unit:"count", baseQty:1, protein:16, carbs:82, sugar:3, fat:12, kcal:520, gramsPerServing:700 },
   { cat:"국·탕", key:"김치콩나물국", aliases:["김치국","콩나물해장국"], unit:"count", baseQty:1, protein:6, carbs:10, sugar:2, fat:3, kcal:90 },
   { cat:"국·탕", key:"된장국", aliases:["된장국"], unit:"count", baseQty:1, protein:8, carbs:10, sugar:3, fat:5, kcal:110 },
   { cat:"국·탕", key:"미소된장국", aliases:["미소국","미소된장국"], unit:"count", baseQty:1, protein:5, carbs:6, sugar:2, fat:2, kcal:60 },
   { cat:"국·탕", key:"어묵탕", aliases:["어묵탕","오뎅탕"], unit:"count", baseQty:1, protein:14, carbs:20, sugar:4, fat:6, kcal:200 },
   { cat:"국·탕", key:"매운탕", aliases:["매운탕","생선매운탕"], unit:"count", baseQty:1, protein:28, carbs:15, sugar:3, fat:10, kcal:280 },
   { cat:"국·탕", key:"동태탕", aliases:["동태탕","동태찌개"], unit:"count", baseQty:1, protein:26, carbs:12, sugar:2, fat:6, kcal:220 },
-  { cat:"국·탕", key:"닭곰탕", aliases:["닭곰탕","닭개장"], unit:"count", baseQty:1, protein:28, carbs:40, sugar:2, fat:12, kcal:400 },
+  { cat:"국·탕", key:"닭곰탕", aliases:["닭곰탕","닭개장"], unit:"count", baseQty:1, protein:28, carbs:40, sugar:2, fat:12, kcal:400, gramsPerServing:600 },
 
   // ---- 고기·구이 (1인분 150g 기준) ----
   { cat:"고기·구이", key:"목살구이", aliases:["목살구이"], unit:"count", baseQty:1, protein:33, carbs:2, sugar:0, fat:30, kcal:410 },
@@ -398,26 +398,26 @@ export const FOOD_DB = [
   { cat:"고기·구이", key:"불닭", aliases:["불닭","숯불닭갈비"], unit:"count", baseQty:1, protein:30, carbs:18, sugar:10, fat:18, kcal:360 },
 
   // ---- 과일 (1회분 기준) ----
-  { cat:"과일", key:"딸기", aliases:["딸기"], unit:"count", baseQty:1, protein:1, carbs:12, sugar:8, fat:0.3, kcal:50 },
-  { cat:"과일", key:"포도", aliases:["포도"], unit:"count", baseQty:1, protein:1, carbs:27, sugar:23, fat:0.2, kcal:104 },
-  { cat:"과일", key:"블루베리", aliases:["블루베리"], unit:"count", baseQty:1, protein:1, carbs:21, sugar:15, fat:0.5, kcal:84 },
-  { cat:"과일", key:"오렌지", aliases:["오렌지"], unit:"count", baseQty:1, protein:1, carbs:15, sugar:12, fat:0.2, kcal:62 },
-  { cat:"과일", key:"귤", aliases:["귤"], unit:"count", baseQty:1, protein:0.5, carbs:9, sugar:7, fat:0.1, kcal:37 },
-  { cat:"과일", key:"참외", aliases:["참외"], unit:"count", baseQty:1, protein:1, carbs:20, sugar:16, fat:0.2, kcal:80 },
-  { cat:"과일", key:"수박", aliases:["수박"], unit:"count", baseQty:1, protein:1, carbs:22, sugar:18, fat:0.3, kcal:86 },
-  { cat:"과일", key:"키위", aliases:["키위"], unit:"count", baseQty:1, protein:1, carbs:11, sugar:7, fat:0.4, kcal:46 },
-  { cat:"과일", key:"배", aliases:["배(과일)"], unit:"count", baseQty:1, protein:0.6, carbs:27, sugar:17, fat:0.2, kcal:100 },
-  { cat:"과일", key:"복숭아", aliases:["복숭아"], unit:"count", baseQty:1, protein:1, carbs:15, sugar:13, fat:0.3, kcal:60 },
-  { cat:"과일", key:"방울토마토(과일)", aliases:["토마토(과일)"], unit:"count", baseQty:1, protein:1, carbs:5, sugar:3, fat:0.2, kcal:22 },
-  { cat:"과일", key:"망고", aliases:["망고"], unit:"count", baseQty:1, protein:1.4, carbs:25, sugar:23, fat:0.6, kcal:100 },
-  { cat:"과일", key:"파인애플", aliases:["파인애플"], unit:"count", baseQty:1, protein:0.5, carbs:13, sugar:10, fat:0.1, kcal:50 },
-  { cat:"과일", key:"체리", aliases:["체리"], unit:"count", baseQty:1, protein:1, carbs:16, sugar:13, fat:0.2, kcal:63 },
-  { cat:"과일", key:"자두", aliases:["자두"], unit:"count", baseQty:1, protein:0.5, carbs:8, sugar:7, fat:0.2, kcal:30 },
-  { cat:"과일", key:"감", aliases:["감","단감"], unit:"count", baseQty:1, protein:1, carbs:31, sugar:21, fat:0.3, kcal:118 },
-  { cat:"과일", key:"멜론", aliases:["멜론"], unit:"count", baseQty:1, protein:1, carbs:14, sugar:13, fat:0.2, kcal:56 },
-  { cat:"과일", key:"레몬", aliases:["레몬"], unit:"count", baseQty:1, protein:0.6, carbs:5, sugar:1.5, fat:0.2, kcal:17 },
-  { cat:"과일", key:"석류", aliases:["석류"], unit:"count", baseQty:1, protein:1.7, carbs:19, sugar:14, fat:1.2, kcal:83 },
-  { cat:"과일", key:"자몽", aliases:["자몽"], unit:"count", baseQty:1, protein:1, carbs:13, sugar:11, fat:0.2, kcal:52 },
+  { cat:"과일", key:"딸기", aliases:["딸기"], unit:"count", baseQty:1, protein:1, carbs:12, sugar:8, fat:0.3, kcal:50, gramsPerServing:150 },
+  { cat:"과일", key:"포도", aliases:["포도"], unit:"count", baseQty:1, protein:1, carbs:27, sugar:23, fat:0.2, kcal:104, gramsPerServing:100 },
+  { cat:"과일", key:"블루베리", aliases:["블루베리"], unit:"count", baseQty:1, protein:1, carbs:21, sugar:15, fat:0.5, kcal:84, gramsPerServing:100 },
+  { cat:"과일", key:"오렌지", aliases:["오렌지"], unit:"count", baseQty:1, protein:1, carbs:15, sugar:12, fat:0.2, kcal:62, gramsPerServing:200 },
+  { cat:"과일", key:"귤", aliases:["귤"], unit:"count", baseQty:1, protein:0.5, carbs:9, sugar:7, fat:0.1, kcal:37, gramsPerServing:80 },
+  { cat:"과일", key:"참외", aliases:["참외"], unit:"count", baseQty:1, protein:1, carbs:20, sugar:16, fat:0.2, kcal:80, gramsPerServing:200 },
+  { cat:"과일", key:"수박", aliases:["수박"], unit:"count", baseQty:1, protein:1, carbs:22, sugar:18, fat:0.3, kcal:86, gramsPerServing:300 },
+  { cat:"과일", key:"키위", aliases:["키위"], unit:"count", baseQty:1, protein:1, carbs:11, sugar:7, fat:0.4, kcal:46, gramsPerServing:80 },
+  { cat:"과일", key:"배", aliases:["배(과일)"], unit:"count", baseQty:1, protein:0.6, carbs:27, sugar:17, fat:0.2, kcal:100, gramsPerServing:300 },
+  { cat:"과일", key:"복숭아", aliases:["복숭아"], unit:"count", baseQty:1, protein:1, carbs:15, sugar:13, fat:0.3, kcal:60, gramsPerServing:200 },
+  { cat:"과일", key:"방울토마토(과일)", aliases:["토마토(과일)"], unit:"count", baseQty:1, protein:1, carbs:5, sugar:3, fat:0.2, kcal:22, gramsPerServing:100 },
+  { cat:"과일", key:"망고", aliases:["망고"], unit:"count", baseQty:1, protein:1.4, carbs:25, sugar:23, fat:0.6, kcal:100, gramsPerServing:200 },
+  { cat:"과일", key:"파인애플", aliases:["파인애플"], unit:"count", baseQty:1, protein:0.5, carbs:13, sugar:10, fat:0.1, kcal:50, gramsPerServing:150 },
+  { cat:"과일", key:"체리", aliases:["체리"], unit:"count", baseQty:1, protein:1, carbs:16, sugar:13, fat:0.2, kcal:63, gramsPerServing:100 },
+  { cat:"과일", key:"자두", aliases:["자두"], unit:"count", baseQty:1, protein:0.5, carbs:8, sugar:7, fat:0.2, kcal:30, gramsPerServing:70 },
+  { cat:"과일", key:"감", aliases:["감","단감"], unit:"count", baseQty:1, protein:1, carbs:31, sugar:21, fat:0.3, kcal:118, gramsPerServing:150 },
+  { cat:"과일", key:"멜론", aliases:["멜론"], unit:"count", baseQty:1, protein:1, carbs:14, sugar:13, fat:0.2, kcal:56, gramsPerServing:200 },
+  { cat:"과일", key:"레몬", aliases:["레몬"], unit:"count", baseQty:1, protein:0.6, carbs:5, sugar:1.5, fat:0.2, kcal:17, gramsPerServing:60 },
+  { cat:"과일", key:"석류", aliases:["석류"], unit:"count", baseQty:1, protein:1.7, carbs:19, sugar:14, fat:1.2, kcal:83, gramsPerServing:150 },
+  { cat:"과일", key:"자몽", aliases:["자몽"], unit:"count", baseQty:1, protein:1, carbs:13, sugar:11, fat:0.2, kcal:52, gramsPerServing:230 },
 
   // ---- 술·안주 ----
   { cat:"술·안주", key:"맥주", aliases:["맥주"], unit:"count", baseQty:1, protein:1.6, carbs:13, sugar:0, fat:0, kcal:150 },
@@ -623,6 +623,68 @@ const DEFAULT_GRAMS_BY_CAT = {
   "반찬·야채":80, "과일":150, "유제품·보충제":250, "기본재료":100, "기타":300,
 };
 
+// ===== 계량 기준점 (눈대중 도우미) =====
+// "얼마나 먹었는지" 감을 잡기 위한 일상 기준. 손은 항상 가지고 다니고 체격에 비례해서 꽤 쓸만하다.
+export const HAND_GUIDE = [
+  { icon:"✊", name:"주먹 1개",   amount:"밥 1공기 ≈ 210g", note:"탄수화물 — 밥·면·감자", grams:210 },
+  { icon:"🤚", name:"손바닥 1개", amount:"고기·생선 ≈ 100g", note:"단백질 — 손가락 뺀 두께 포함", grams:100 },
+  { icon:"👍", name:"엄지 1개",   amount:"기름·버터 ≈ 15g",  note:"지방 — 견과류는 한 줌 ≈ 30g", grams:15 },
+  { icon:"🤲", name:"두 손 가득", amount:"잎채소 ≈ 70g",     note:"채소 — 익히면 부피가 줄어요", grams:70 },
+];
+// 집에 흔한 그릇·도구 기준
+export const CONTAINER_GUIDE = [
+  { name:"밥공기(공깃밥)", amount:"밥 210g", grams:210 },
+  { name:"국그릇 가득",     amount:"400~450ml", grams:420 },
+  { name:"종이컵",         amount:"180ml", grams:180 },
+  { name:"머그컵",         amount:"250ml", grams:250 },
+  { name:"밥숟가락",       amount:"약 15g (1큰술)", grams:15 },
+  { name:"티스푼",         amount:"약 5g (1작은술)", grams:5 },
+];
+// 카테고리별로 "보통 1인분이 이 정도" — 새 음식 등록할 때 감을 잡는 용도
+export const CAT_PORTION_HINT = {
+  "한식":"백반 한 그릇 ≈ 350g", "국·탕":"국그릇 하나 ≈ 450g", "면류":"라면·국수 1인분 ≈ 500g",
+  "분식":"떡볶이 1인분 ≈ 300g", "중식":"짜장면 한 그릇 ≈ 350g", "일식":"덮밥 하나 ≈ 350g",
+  "샐러드·건강식":"샐러드볼 하나 ≈ 250g", "고기·구이":"손바닥 크기 ≈ 100~150g",
+  "치킨":"한 마리 ≈ 950g (한 조각 ≈ 90g)", "버거":"단품 하나 ≈ 230g", "피자":"한 조각 ≈ 120g",
+  "빵류":"식빵 1장 ≈ 35g, 크루아상 ≈ 60g", "편의점":"도시락 하나 ≈ 400g, 삼각김밥 ≈ 100g",
+  "카페":"톨 사이즈 ≈ 355ml", "음료":"캔 250ml, 페트 500ml",
+  "간식":"과자 한 봉 ≈ 60g", "디저트":"조각케이크 ≈ 100g",
+  "반찬·야채":"작은 종지 하나 ≈ 80g", "과일":"사과 1개 ≈ 200g, 바나나 1개 ≈ 120g",
+  "유제품·보충제":"우유 1팩 200ml, 프로틴 1스쿱 ≈ 30g",
+  "기본재료":"조리 전 100g 기준", "소스·양념":"1큰술 ≈ 15g",
+};
+// g 수치를 익숙한 것에 빗대어 설명 — "350g이 대체 얼마야?"를 풀어준다
+export function portionHint(grams, cat) {
+  const g = Number(grams) || 0;
+  if (g <= 0) return null;
+  if (cat === "소스·양념") return `밥숟가락 약 ${Math.max(1, Math.round(g/15))}큰술`;
+  if (cat === "카페" || cat === "음료") {
+    if (g >= 300) return `종이컵 약 ${(g/180).toFixed(1)}컵`;
+    return `머그컵 약 ${(g/250).toFixed(1)}컵`;
+  }
+  if (cat === "고기·구이" || cat === "기본재료") {
+    const palms = g/100;
+    return palms < 0.8 ? `손바닥 절반 정도` : `손바닥 약 ${palms.toFixed(1)}개 크기`;
+  }
+  if (["한식","국·탕","면류","분식","중식","일식","아시안","편의점"].includes(cat)) {
+    return `밥공기 약 ${(g/210).toFixed(1)}개 분량`;
+  }
+  if (cat === "과일") {
+    // 주먹 하나가 사과 1개(약 200g) 정도
+    return g < 130 ? `바나나 1개 정도` : `주먹 약 ${(g/200).toFixed(1)}개 크기`;
+  }
+  if (cat === "간식" || cat === "디저트" || cat === "빵류") {
+    return `두 손 오므린 정도 (${g}g)`;
+  }
+  if (cat === "반찬·야채") {
+    return `작은 종지 약 ${(g/80).toFixed(1)}개`;
+  }
+  // 그 외는 가장 가까운 기준으로
+  if (g < 20) return `밥숟가락 약 ${Math.max(1, Math.round(g/15))}큰술`;
+  if (g < 120) return `손바닥 약 ${(g/100).toFixed(1)}개 크기`;
+  return `밥공기 약 ${(g/210).toFixed(1)}개 분량`;
+}
+
 // 이 음식의 "1인분(1개/1회분)"이 몇 g인지 반환. 명시값 > 밥 등 gramsPerUnit > 카테고리 평균 순.
 export function gramsPerServing(entry) {
   if (entry.gramsPerServing) return entry.gramsPerServing;
@@ -709,6 +771,71 @@ export function localBrandSearch(text, customEntries = []) {
     e.aliases.some((a) => q.includes(a) || a.includes(q))
   );
 }
+
+// ===== 카테고리 묶음 (가로 스크롤 대신 2단계로) =====
+// 24개를 한 줄에 늘어놓으면 뒤쪽이 안 보여서, 큰 갈래로 먼저 고르게 한다.
+export const CATEGORY_GROUPS = [
+  { key:"집밥",   icon:"🍚", color:"#FF7A45", cats:["한식","반찬·야채","국·탕","분식"] },
+  { key:"외식",   icon:"🍜", color:"#FFC24B", cats:["면류","중식","일식","아시안","고기·구이","샐러드·건강식"] },
+  { key:"배달·패스트푸드", icon:"🍗", color:"#FF6B6B", cats:["치킨","버거","피자"] },
+  { key:"간식·음료", icon:"🍫", color:"#C9A6FF", cats:["간식","디저트","빵류","카페","음료","술·안주","편의점"] },
+  { key:"재료·보충제", icon:"💪", color:"#B6E34B", cats:["기본재료","유제품·보충제","과일","소스·양념"] },
+];
+export const CAT_ICON = {
+  "한식":"🍚","반찬·야채":"🥬","국·탕":"🍲","분식":"🌭","면류":"🍜","중식":"🥟","일식":"🍣",
+  "아시안":"🍛","고기·구이":"🥩","샐러드·건강식":"🥗","치킨":"🍗","버거":"🍔","피자":"🍕",
+  "간식":"🍪","디저트":"🍰","빵류":"🥐","카페":"☕","음료":"🥤","술·안주":"🍺","편의점":"🏪",
+  "기본재료":"🥚","유제품·보충제":"🥛","과일":"🍎","소스·양념":"🧂","기타":"🍽","내 음식":"⭐",
+};
+export const catIcon = (c)=> CAT_ICON[c] || "🍽";
+// 각 카테고리에 몇 개가 들어있는지 (헛클릭 방지용 배지)
+export function categoryCounts(customEntries = []) {
+  const out = {};
+  const overrideKeys = new Set(customEntries.map((e)=>e.key));
+  for (const e of FOOD_DB) { if (overrideKeys.has(e.key)) continue; out[e.cat] = (out[e.cat]||0)+1; }
+  for (const e of customEntries) { const c = normCat(e); out[c] = (out[c]||0)+1; }
+  out["내 음식"] = customEntries.length;
+  return out;
+}
+// 기록한 음식 이름으로 카테고리 사용 횟수를 센다 — 자주 쓰는 분류를 앞에 두기 위함
+export function categoryUsage(schedule, customEntries = []) {
+  const overrideKeys = new Set(customEntries.map((e)=>e.key));
+  const nameToCat = new Map();
+  for (const e of [...customEntries, ...FOOD_DB.filter((x)=>!overrideKeys.has(x.key))]) {
+    const c = normCat(e);
+    nameToCat.set(String(e.key).trim(), c);
+    for (const a of (e.aliases||[])) nameToCat.set(String(a).trim(), c);
+  }
+  const counts = {};
+  for (const dk of Object.keys(schedule||{})) {
+    for (const f of (schedule[dk]?.foods || [])) {
+      const raw = String(f.name||"").trim();
+      // "닭가슴살 1.5인분"처럼 뒤에 수량이 붙는 경우까지 잡는다
+      let cat = nameToCat.get(raw);
+      if (!cat) {
+        for (const [k, v] of nameToCat) {
+          if (raw.startsWith(k)) { cat = v; break; }
+        }
+      }
+      if (cat) counts[cat] = (counts[cat]||0) + 1;
+    }
+  }
+  return counts;
+}
+
+// 영양 기준 빠른 필터 — 카테고리보다 이게 더 쓸모 있을 때가 많다
+export const NUTRI_FILTERS = [
+  { key:"highProtein", label:"고단백", icon:"🥩", color:"#B6E34B",
+    desc:"100kcal당 단백질 10g 이상", test:(e)=> e.kcal>0 && (e.protein/e.kcal*100) >= 10 },
+  { key:"lowCal", label:"저칼로리", icon:"🪶", color:"#35C4D8",
+    desc:"1회분 150kcal 이하", test:(e)=> e.kcal>0 && e.kcal <= 150 },
+  { key:"lowFat", label:"저지방", icon:"💧", color:"#6BA8FF",
+    desc:"지방이 전체 칼로리의 25% 이하", test:(e)=> e.kcal>0 && (e.fat*9/e.kcal) <= 0.25 },
+  { key:"lowSugar", label:"저당", icon:"🚫", color:"#FF8FB0",
+    desc:"1회분 당류 5g 이하", test:(e)=> (e.sugar||0) <= 5 },
+];
+// 단백질 효율 — 같은 칼로리로 단백질을 얼마나 얻는지 (벌크·컷 모두에서 유용)
+export const proteinPer100kcal = (e)=> (e.kcal>0 ? Math.round(e.protein/e.kcal*100*10)/10 : 0);
 
 // 내 음식 등록 시 선택 가능한 카테고리 목록
 export const CATEGORIES = ["기본재료", "유제품·보충제", "한식", "반찬·야채", "국·탕", "면류", "분식", "중식", "일식", "아시안", "치킨", "버거", "피자", "빵류", "샐러드·건강식", "고기·구이", "과일", "소스·양념", "편의점", "카페", "음료", "술·안주", "디저트", "간식", "기타"];
