@@ -651,7 +651,7 @@ export default function App() {
     setData((prev)=>{ const next = fn(prev); save(next); return next; });
   }, []);
 
-  const updateDay = useCallback((dateKey, patch) => {
+  const updateDay = useCallback((dateKey, patch, undoLabel) => {
     mutate((prev)=>{
       const cur = prev.schedule[dateKey] || emptyDay();
       const nd = { ...cur, ...patch };
@@ -659,7 +659,7 @@ export default function App() {
       const schedule = { ...prev.schedule };
       if (clean) schedule[dateKey]=nd; else delete schedule[dateKey];
       return { ...prev, schedule };
-    });
+    }, undoLabel);
   }, [mutate]);
 
   const addFoodsToday = useCallback((items)=> mutate((prev)=>{
@@ -1097,7 +1097,8 @@ function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps,
         <Row><span style={lbl}>먹은 음식</span></Row>
         <FoodSection foods={day.foods}
           addFoods={(items)=>updateDay(k,{foods:[...day.foods, ...items], water:(day.water||0)+extraWater(items)})}
-          removeFood={(id)=>updateDay(k,{foods:day.foods.filter(f=>f.id!==id)})}
+          removeFood={(id)=>{ const f=day.foods.find(x=>x.id===id);
+            updateDay(k,{foods:day.foods.filter(x=>x.id!==id)}, f?`"${f.name}"`:"음식"); }}
           updateFood={(id,patch)=>updateDay(k,{foods:day.foods.map(f=>f.id===id?{...f,...patch}:f)})}
           apiKey={apiKey} customFoods={customFoods}
           {...favProps} />
@@ -1240,7 +1241,8 @@ function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps,
         <HabitTracker habits={data.habits} log={day.habitLog||{}}
           onToggle={(id)=>updateDay(k,{ habitLog:{ ...(day.habitLog||{}), [id]: !(day.habitLog||{})[id] } })}
           onAddHabit={(name,emoji)=>mutate((prev)=>({ ...prev, habits:[...prev.habits, { id:uid(), name, emoji }] }))}
-          onRemoveHabit={(id)=>mutate((prev)=>({ ...prev, habits:prev.habits.filter(h=>h.id!==id) }))} />
+          onRemoveHabit={(id)=>{ const h=(data.habits||[]).find(x=>x.id===id);
+            mutate((prev)=>({ ...prev, habits:prev.habits.filter(x=>x.id!==id) }), h?`습관 "${h.name}"`:"습관"); }} />
       </Card>
 
       {/* 한 줄 일기 */}
@@ -1682,7 +1684,7 @@ function PlanEditor({ dateKey, list, onSave, onClose, onShare }) {
                   <button onClick={()=>onShare([{dateKey, plan:p}], p.title)} title="휴대폰 캘린더에 추가"
                     style={{ background:"none", border:`1px solid ${tint(STUDY_ACCENT,0.45)}`, color:STUDY_ACCENT,
                       borderRadius:8, padding:"6px 8px", cursor:"pointer", fontSize:12, flexShrink:0 }}>📲</button>
-                  <button onClick={()=>remove(p.id)} style={{ background:"none", border:"none", color:C.muted, fontSize:17, cursor:"pointer", padding:"0 2px", flexShrink:0 }}>×</button>
+                  <ConfirmX onConfirm={()=>remove(p.id)} label="계획 삭제" size={17} />
                 </div>
               ))}
             </div>
@@ -2495,7 +2497,8 @@ function DayEditor({ dateKey, day, schedule, onClose, updateDay, favProps, apiKe
       return { ...d, lifts:[...d.lifts, ...added] };
     });
   };
-  const removeRoutine = (id) => mutate((prev)=>({ ...prev, routines:prev.routines.filter(r=>r.id!==id) }));
+  const removeRoutine = (id) => { const r=(routines||[]).find(x=>x.id===id);
+    mutate((prev)=>({ ...prev, routines:prev.routines.filter(x=>x.id!==id) }), r?`루틴 "${r.name}"`:"루틴"); };
 
   const setCardioType = (tp)=> setDraft((d)=> d.cardio&&d.cardio.type===tp?{...d,cardio:null}:{ ...d, cardio:{ type:tp, min:d.cardio?.min||20, kcal:d.cardio?.kcal||0 } });
   const setCardioField = (f,v)=> setDraft((d)=>({ ...d, cardio:{ ...d.cardio, [f]:v } }));
@@ -2552,7 +2555,7 @@ function DayEditor({ dateKey, day, schedule, onClose, updateDay, favProps, apiKe
                 <span key={r.id} style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"7px 8px 7px 12px", borderRadius:999,
                   border:`1px solid ${tint(TYPES.push.color,0.5)}`, background:tint(TYPES.push.color,0.1), fontSize:12.5, fontWeight:700 }}>
                   <span onClick={()=>loadRoutine(r)} style={{ cursor:"pointer", color:TYPES.push.color }}>▶ {r.name}</span>
-                  <span onClick={()=>removeRoutine(r.id)} style={{ cursor:"pointer", color:C.muted }}>×</span>
+                  <ConfirmX onConfirm={()=>removeRoutine(r.id)} label="루틴 삭제" />
                 </span>
               ))}
               {draft.lifts.length>0 && (
@@ -2577,7 +2580,7 @@ function DayEditor({ dateKey, day, schedule, onClose, updateDay, favProps, apiKe
               <div key={l.id} style={{ background:C.surface2, borderRadius:12, padding:"10px 12px", marginBottom:8 }}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                   <span style={{ fontSize:14, fontWeight:800 }}>{l.name}{isPR && " 🏆"}</span>
-                  <button onClick={()=>rmExercise(l.id)} style={xBtn}>×</button>
+                  <ConfirmX onConfirm={()=>rmExercise(l.id)} label="종목 삭제" />
                 </div>
                 {isPR && <div style={{ fontSize:11, color:C.amber, fontWeight:700, marginTop:2 }}>신기록! 이전 최고 {prevMax}kg 돌파</div>}
                 {last && (
@@ -2856,7 +2859,7 @@ function HabitTracker({ habits, log, onToggle, onAddHabit, onRemoveHabit }) {
                 <span style={{ fontSize:18 }}>{h.emoji}</span>
                 <span style={{ flex:1, fontSize:13.5, fontWeight:700, color:done?TYPES.legs.color:C.text, textDecoration:done&&!manage?"none":"none" }}>{h.name}</span>
                 {manage ? (
-                  <button onClick={(e)=>{ e.stopPropagation(); onRemoveHabit(h.id); }} style={xBtn}>×</button>
+                  <ConfirmX onConfirm={()=>onRemoveHabit(h.id)} label="습관 삭제" />
                 ) : (
                   <div style={{ width:24, height:24, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center",
                     background:done?TYPES.legs.color:"transparent", border:`2px solid ${done?TYPES.legs.color:C.muted}`,
@@ -3105,6 +3108,8 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule, favorites, m
         </button>
       </div>
 
+      {guideOpen && <PortionGuideSheet onClose={()=>setGuideOpen(false)} />}
+
       {filterOpen && (
         <FoodFilterSheet
           catCounts={catCounts} sortedGroups={sortedGroups} sortedCatsOf={sortedCatsOf}
@@ -3227,7 +3232,7 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule, favorites, m
               </div>
             </div>
             <button onClick={()=>setEditKey(editKey===e.key?null:e.key)} title="수정" style={{ ...xBtn, fontSize:14 }}>✏️</button>
-            {e.custom && <button onClick={()=>removeCustomFood(e.key)} style={xBtn}>×</button>}
+            {e.custom && <ConfirmX onConfirm={()=>removeCustomFood(e.key)} label="이 음식 삭제" />}
           </div>
 
           {editKey===e.key && (
@@ -4649,7 +4654,8 @@ function Body({ data, persist, mutate, target, latestWeight, tdee }) {
     const entry={ id:uid(), date:m.date, weight:num(m.weight), fat:m.fat?num(m.fat):null, muscle:m.muscle?num(m.muscle):null, note:m.note };
     persist({ ...data, measurements:[...data.measurements.filter(x=>x.date!==m.date), entry] });
     setM({ date:todayKey(), weight:"", fat:"", muscle:"", note:"" }); };
-  const rmMeasure = (id)=> persist({ ...data, measurements:data.measurements.filter(x=>x.id!==id) });
+  const rmMeasure = (id)=> { const it=data.measurements.find(x=>x.id===id);
+    persist({ ...data, measurements:data.measurements.filter(x=>x.id!==id) }, it?`${it.date.slice(5).replace("-",".")} 측정`:"측정 기록"); };
 
   const sorted = [...data.measurements].sort((a,b)=>a.date.localeCompare(b.date));
   const sortedDesc = [...sorted].reverse();
@@ -4871,7 +4877,7 @@ function Body({ data, persist, mutate, target, latestWeight, tdee }) {
               <div><div style={{ fontSize:13, fontWeight:700 }}>{x.date.replace(/-/g,".")}</div>
                 <div style={{ fontSize:12, color:C.muted, marginTop:2 }}>{x.weight}kg{x.fat!=null?` · 체지방 ${x.fat}%`:""}{x.muscle!=null?` · 골격근 ${x.muscle}kg`:""}</div>
                 {x.note && <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>{x.note}</div>}</div>
-              <button onClick={()=>rmMeasure(x.id)} style={xBtn}>×</button>
+              <ConfirmX onConfirm={()=>rmMeasure(x.id)} label="측정 삭제" />
             </div>
           ))}
         </Card>
@@ -5588,7 +5594,7 @@ function MealSets({ sets, mutate, addFoodsToday, schedule }) {
                 </div>
                 <button onClick={()=>applySet(st)} style={{...primary(done?TYPES.legs.color:TYPES.push.color),
                   padding:"8px 13px", fontSize:11.5, flexShrink:0}}>{done?"추가됨 ✓":"추가"}</button>
-                <button onClick={()=>removeSet(st.id)} style={xBtn}>×</button>
+                <ConfirmX onConfirm={()=>removeSet(st.id)} label="세트 삭제" />
               </div>
             );
           })}
@@ -5731,7 +5737,7 @@ function FoodSection({ foods, addFoods, removeFood, updateFood, favorites, addFa
               <div style={{ fontSize:12, color:C.muted }}>단백질 {num(f.protein)}g · 탄수 {num(f.carbs)}g · 당 {num(f.sugar)}g · 지방 {num(f.fat)}g{num(f.kcal)>0?` · ${f.kcal}kcal`:""}{num(f.liquidMl)>0?` · 💧${f.liquidMl}ml`:""}</div>
             </div>
             <button onClick={()=>addFavorite(f)} title="즐겨찾기" style={{ ...xBtn, color:C.amber, marginRight:6 }}>★</button>
-            <button onClick={()=>removeFood(f.id)} style={xBtn}>×</button>
+            <ConfirmX onConfirm={()=>removeFood(f.id)} label="삭제" />
           </div>
           {updateFood && editId===f.id && (
             <FoodEditRow food={f} onSave={(patch)=>{ updateFood(f.id, patch); setEditId(null); }} onCancel={()=>setEditId(null)} />
@@ -6733,6 +6739,31 @@ const activeTagStyle = (col) => ({
   border:`1px solid ${tint(col,0.45)}`, color:col, borderRadius:999,
   padding:"4px 9px", fontSize:10.5, fontWeight:800, cursor:"pointer", whiteSpace:"nowrap",
 });
+
+// 실수로 지우는 걸 막는 2단계 삭제 버튼 — 한 번 누르면 확인 상태, 3초 뒤 자동 취소
+function ConfirmX({ onConfirm, label="삭제", size=15 }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(()=>{
+    if (!armed) return;
+    const t = setTimeout(()=>setArmed(false), 3000);
+    return ()=>clearTimeout(t);
+  }, [armed]);
+  if (armed) {
+    return (
+      <button onClick={(e)=>{ e.stopPropagation(); setArmed(false); onConfirm(); }}
+        style={{ background:tint(C.danger,0.16), border:`1px solid ${C.danger}`, color:C.danger,
+          borderRadius:8, padding:"4px 9px", cursor:"pointer", fontSize:10.5, fontWeight:800,
+          whiteSpace:"nowrap", flexShrink:0 }}>
+        {label}?
+      </button>
+    );
+  }
+  return (
+    <button onClick={(e)=>{ e.stopPropagation(); setArmed(true); }} title={label}
+      style={{ background:"none", border:"none", color:C.muted, fontSize:size, cursor:"pointer",
+        padding:"0 3px", flexShrink:0, lineHeight:1 }}>×</button>
+  );
+}
 
 const SecLabel = ({children}) => <div style={{ fontSize:12, fontWeight:800, color:C.muted, margin:"18px 0 8px" }}>{children}</div>;
 const Field = ({label,v,on}) => (
