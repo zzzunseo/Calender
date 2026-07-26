@@ -833,7 +833,7 @@ function QuickAdd({ day, updateToday, weight, onGoToday, onAddVocab }) {
       {/* 단어 빠른 입력 */}
       {wordOpen && (
         <div onClick={()=>setWordOpen(false)} style={sheetBg}>
-          <div onClick={(e)=>e.stopPropagation()} style={{...sheet, maxHeight:"none",
+          <div onClick={(e)=>e.stopPropagation()} style={{...sheet, minHeight:"auto", maxHeight:"none",
             paddingBottom:"calc(18px + env(safe-area-inset-bottom))"}}>
             <div style={grip} />
             <div style={{ fontSize:16, fontWeight:800 }}>단어 추가</div>
@@ -1732,7 +1732,7 @@ function MonthNav({ view, setView, accent, right }) {
 
       {pickOpen && (
         <div onClick={()=>setPickOpen(false)} style={sheetBg}>
-          <div onClick={(e)=>e.stopPropagation()} style={{...sheet, maxHeight:"none", paddingBottom:"calc(18px + env(safe-area-inset-bottom))"}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{...sheet, minHeight:"auto", maxHeight:"none", paddingBottom:"calc(18px + env(safe-area-inset-bottom))"}}>
             <div style={grip} />
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
               <button onClick={()=>setView({ ...view, y:view.y-1 })} style={navBtn}>‹</button>
@@ -1785,7 +1785,7 @@ function PlanEditor({ dateKey, list, onSave, onClose, onShare }) {
           </div>
         </div>
 
-        <div style={{ flex:1, minHeight:0, overflowY:"auto", paddingRight:2, overscrollBehavior:"contain" }}>
+        <div style={{ flex:"1 1 auto", minHeight:0, overflowY:"auto", paddingRight:2, overscrollBehavior:"contain" }}>
           {/* 등록된 계획 */}
           {items.length>0 && (
             <div style={{ display:"flex", flexDirection:"column", gap:7, marginBottom:16 }}>
@@ -1874,7 +1874,7 @@ function PlanShareSheet({ target, onClose }) {
   };
   return (
     <div onClick={onClose} style={sheetBg}>
-      <div onClick={(e)=>e.stopPropagation()} style={{...sheet, maxHeight:"none", paddingBottom:"calc(18px + env(safe-area-inset-bottom))"}}>
+      <div onClick={(e)=>e.stopPropagation()} style={{...sheet, minHeight:"auto", maxHeight:"none", paddingBottom:"calc(18px + env(safe-area-inset-bottom))"}}>
         <div style={grip} />
         <div style={{ fontSize:16, fontWeight:800 }}>휴대폰 캘린더에 넣기</div>
         <div style={{ fontSize:11.5, color:C.muted, marginTop:5 }}>{label}</div>
@@ -2264,7 +2264,7 @@ function Calendar({ data, persist, updateDay, favProps, apiKey, customFoods, rou
       {/* 운동 배정 지우기 확인 */}
       {resetOpen && (
         <div onClick={()=>setResetOpen(false)} style={sheetBg}>
-          <div onClick={(e)=>e.stopPropagation()} style={{...sheet, maxHeight:"none", paddingBottom:"calc(18px + env(safe-area-inset-bottom))"}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{...sheet, minHeight:"auto", maxHeight:"none", paddingBottom:"calc(18px + env(safe-area-inset-bottom))"}}>
             <div style={grip} />
             <div style={{ fontSize:16, fontWeight:800, marginBottom:8 }}>{MONTHS[view.m]} 운동 배정을 지울까요?</div>
             <div style={{ fontSize:12.5, color:C.muted, lineHeight:1.65 }}>
@@ -2644,7 +2644,7 @@ function DayEditor({ dateKey, day, schedule, onClose, updateDay, favProps, apiKe
             <span style={{ fontSize:11, color:C.muted }}>아래로 스크롤해서 더 기록</span>
           </div>
         </div>
-        <div style={{ flex:1, minHeight:0, overflowY:"auto", WebkitOverflowScrolling:"touch", paddingRight:2, overscrollBehavior:"contain" }}>
+        <div style={{ flex:"1 1 auto", minHeight:0, overflowY:"auto", WebkitOverflowScrolling:"touch", paddingRight:2, overscrollBehavior:"contain" }}>
 
           <SecLabel>운동 <span style={{ fontWeight:600, color:C.muted, opacity:0.8 }}>(선택 — 안 골라도 아래 부위 세트만으로 운동 기록돼요)</span></SecLabel>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
@@ -4172,7 +4172,7 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
           </div>
         </div>
 
-        <div style={{ flex:1, minHeight:0, overflowY:"auto", paddingRight:2, overscrollBehavior:"contain" }}>
+        <div style={{ flex:"1 1 auto", minHeight:0, overflowY:"auto", paddingRight:2, overscrollBehavior:"contain" }}>
           {!enough ? (
             <div style={{ fontSize:12.5, color:C.muted, lineHeight:1.7, padding:"14px 0" }}>
               퀴즈를 내려면 뜻이 있는 단어가 <b style={{color:C.text}}>4개 이상</b> 필요해요.
@@ -4369,7 +4369,7 @@ ${terms.map((t,i)=>`${i+1}. ${t}`).join("\n")}
           <div style={{ fontSize:11, color:C.muted, marginBottom:12 }}>한 줄에 하나씩 · 뜻은 비워도 AI가 채워줘요</div>
         </div>
 
-        <div style={{ flex:1, minHeight:0, overflowY:"auto", paddingRight:2, overscrollBehavior:"contain" }}>
+        <div style={{ flex:"1 1 auto", minHeight:0, overflowY:"auto", paddingRight:2, overscrollBehavior:"contain" }}>
           <div style={{ display:"flex", gap:6 }}>
             {VOCAB_TYPES.map((t)=>(
               <button key={t.k} onClick={()=>setType(t.k)}
@@ -5604,7 +5604,7 @@ function FoodFilterSheet({ catCounts, sortedGroups, sortedCatsOf, group, setGrou
           </div>
         </div>
 
-        <div style={{ flex:1, minHeight:0, overflowY:"auto", paddingRight:2, overscrollBehavior:"contain" }}>
+        <div style={{ flex:"1 1 auto", minHeight:0, overflowY:"auto", paddingRight:2, overscrollBehavior:"contain" }}>
           {/* 내 목록 */}
           {(favCount>0 || customCount>0) && (<>
             <div style={{ fontSize:11.5, fontWeight:800, color:C.muted, marginBottom:7 }}>내 목록</div>
@@ -5950,7 +5950,7 @@ function PortionGuideSheet({ onClose }) {
           </div>
         </div>
 
-        <div style={{ flex:1, minHeight:0, overflowY:"auto", paddingRight:2, overscrollBehavior:"contain" }}>
+        <div style={{ flex:"1 1 auto", minHeight:0, overflowY:"auto", paddingRight:2, overscrollBehavior:"contain" }}>
           {/* 손 기준 */}
           <div style={{ fontSize:12, fontWeight:800, color:TYPES.push.color, marginBottom:8 }}>손으로 재기</div>
           <div style={{ fontSize:10.5, color:C.muted, marginBottom:9, lineHeight:1.5 }}>
@@ -7103,5 +7103,7 @@ const sheetBg = { position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", disp
 // 모바일 주소창을 감안해 dvh 사용. 헤더/푸터는 고정하고 가운데만 스크롤되도록 flex 컬럼 구성
 const sheet = { background:C.surface, width:"100%", maxWidth:460, borderTopLeftRadius:22, borderTopRightRadius:22,
   padding:"14px 18px 0", border:`1px solid ${C.line}`, borderBottom:"none",
-  maxHeight:"92dvh", display:"flex", flexDirection:"column", boxSizing:"border-box" };
+  // 높이를 내용에 맡기면 안쪽 스크롤 영역이 0으로 찌그러져 내용이 안 보이는 일이 생긴다.
+  // 최소 높이를 정해 두면 어떤 브라우저에서도 시트가 확실히 펼쳐진다.
+  minHeight:"55dvh", maxHeight:"92dvh", display:"flex", flexDirection:"column", boxSizing:"border-box" };
 const grip = { width:38, height:4, borderRadius:2, background:C.line, margin:"0 auto 16px" };
