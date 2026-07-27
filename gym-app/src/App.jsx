@@ -2320,17 +2320,19 @@ function Calendar({ data, persist, updateDay, favProps, apiKey, customFoods, rou
               alignItems:"flex-start", justifyContent:"space-between", padding:"6px 6px 5px", position:"relative", overflow:"hidden", textAlign:"left" }}>
               <span style={{ fontSize:12, fontWeight:700, color:isToday(d)?C.text:C.muted }}>{d}</span>
               <div style={{ display:"flex", flexDirection:"column", gap:2, width:"100%" }}>
-                {/* 부위 그룹 색 막대 — 세트수 비례로 나눠서 무슨 갈래를 했는지 한눈에 */}
-                {bd.groups.length>0 && (
+                {/* 먹은/소모 칼로리를 볼 때는 부위 표시를 숨긴다 — 작은 칸에서 텍스트가 겹쳐 보이는 문제 방지 */}
+                {(()=>{ const hidePart = calMetric==="kcalIn" || calMetric==="burn"; return (<>
+                {!hidePart && bd.groups.length>0 && (
                   <div style={{ display:"flex", gap:1.5, width:"100%", height:3.5 }}>
                     {bd.groups.map((g)=>(
                       <div key={g.key} style={{ flex:g.sets, background:g.color, borderRadius:99 }} />
                     ))}
                   </div>
                 )}
-                {label && <span style={{ fontSize:9.5, fontWeight:800, lineHeight:1.1, color:showColor, wordBreak:"keep-all",
+                {!hidePart && label && <span style={{ fontSize:9.5, fontWeight:800, lineHeight:1.1, color:showColor, wordBreak:"keep-all",
                   overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{label}</span>}
-                {!t && totalSets>0 && <span style={{ fontSize:8.5, fontWeight:700, color:C.muted }}>{totalSets}세트</span>}
+                {!hidePart && !t && totalSets>0 && <span style={{ fontSize:8.5, fontWeight:700, color:C.muted }}>{totalSets}세트</span>}
+                </>); })()}
                 {calMetric!=="none" && (()=>{
                   const mv = cellMetric(e, calMetric, calWeight);
                   return mv ? <span style={{ fontSize:9, fontWeight:800, color:METRICS[calMetric].color, lineHeight:1.1 }}>{mv}</span> : null;
