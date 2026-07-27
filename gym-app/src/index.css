@@ -2,12 +2,40 @@
   margin: 0;
   padding: 0;
 }
+html {
+  /* 날짜·시간 선택기 같은 브라우저 기본(네이티브) 위젯도 어두운 테마로 렌더링하라는 힌트.
+     개별 input에 colorScheme:"dark"를 깜빡 빠뜨려도 이게 안전망이 된다. */
+  color-scheme: dark;
+}
 body {
   font-family: system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 input, textarea, button {
   font-family: inherit;
+}
+
+/* ===== 폼 필드 글자색 안전망 =====
+   안드로이드 Chrome/웹뷰는 이름·메모류 입력칸을 "자동완성 대상"으로 보고
+   우리가 지정한 color를 무시한 채 자체 스타일(밝은 배경 + 검은 글자)을 강제로 씌운다.
+   이 규칙은 그 자동완성 스타일을 다시 우리 다크 테마로 덮어써서,
+   음식 이름·습관 이름·메모 등 텍스트 입력칸에서 글자가 검게 나오는 걸 막는다. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: #F5F3EF !important;
+  caret-color: #F5F3EF !important;
+  -webkit-box-shadow: 0 0 0 1000px #262932 inset !important;
+  box-shadow: 0 0 0 1000px #262932 inset !important;
+  transition: background-color 0s ease-in-out 5000s; /* 자동완성 배경 애니메이션을 무력화 */
+}
+
+/* placeholder는 브라우저 기본값에 맡기면 기기마다 진하기가 달라 거의 안 보일 수 있어 직접 지정한다 */
+input::placeholder, textarea::placeholder {
+  color: #8A8D98;
+  opacity: 0.85;
 }
 
 /* ===== 애니메이션 ===== */

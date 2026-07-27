@@ -1818,12 +1818,12 @@ function PlanEditor({ dateKey, list, onSave, onClose, onShare }) {
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>시작</div>
               <input type="time" value={draft.start} onChange={(e)=>setDraft({...draft, start:e.target.value})}
-                style={{...inp, width:"100%", boxSizing:"border-box", padding:"10px"}} />
+                style={{...inp, width:"100%", boxSizing:"border-box", padding:"10px", colorScheme:"dark"}} />
             </div>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>종료</div>
               <input type="time" value={draft.end} onChange={(e)=>setDraft({...draft, end:e.target.value})}
-                style={{...inp, width:"100%", boxSizing:"border-box", padding:"10px"}} />
+                style={{...inp, width:"100%", boxSizing:"border-box", padding:"10px", colorScheme:"dark"}} />
             </div>
           </div>
           <div style={{ fontSize:10, color:C.muted, margin:"12px 0 6px" }}>알림</div>
