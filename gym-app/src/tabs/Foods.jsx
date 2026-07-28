@@ -12,7 +12,7 @@ const MENU_PROMPT = `사용자는 린메스업(근육 늘리기) 중이라 단�
 입력:
 `;
 
-export default function Foods({ addFoodsToday, apiKey, customFoods, mutate, schedule, favorites, mealSets, target, tdee, surplus }) {
+export default function Foods({ addFoodsToday, apiKey, customFoods, mutate, schedule, favorites, mealSets, target, tdee, surplus, addFavorite, removeFavorite }) {
   const [mode, setMode] = useState("search");
   return (
     <div style={{ padding:"22px 18px 8px" }}>
@@ -30,13 +30,141 @@ export default function Foods({ addFoodsToday, apiKey, customFoods, mutate, sche
       </div>
 
       {mode==="search"
-        ? <FoodSearch addFoodsToday={addFoodsToday} customFoods={customFoods} mutate={mutate} schedule={schedule} favorites={favorites||[]} mealSets={mealSets||[]} target={target} tdee={tdee} surplus={surplus} />
+        ? <FoodSearch addFoodsToday={addFoodsToday} customFoods={customFoods} mutate={mutate} schedule={schedule} favorites={favorites||[]} mealSets={mealSets||[]} target={target} tdee={tdee} surplus={surplus} addFavorite={addFavorite} removeFavorite={removeFavorite} />
         : <Dining addFoodsToday={addFoodsToday} apiKey={apiKey} customFoods={customFoods} embedded />}
     </div>
   );
 }
 
-function FoodSearch({ addFoodsToday, customFoods, mutate, schedule, favorites, mealSets, target, tdee, surplus }) {
+// 자주 쓰는 음식을 한 줄로 모아두고, 누르면 양을 정해 넣는다.
+// 화면이 길어지지 않게 기본 6개만 보여주고 나머지는 "더" 로 펼친다.
+function QuickPick({ favorites, recent, onAdd, onStar, onUnstar }) {
+  const [tab, setTab] = useState("fav");     // fav | recent
+  const [expanded, setExpanded] = useState(false);
+  const [picked, setPicked] = useState(null); // 양을 정하는 중인 항목
+  const [amt, setAmt] = useState("1");
+  const [flash, setFlash] = useState("");
+
+  const favList = (favorites||[]).map(f=>({ item:f, fav:true }));
+  const recList = (recent||[]).map(r=>({ item:r.item, count:r.count, fav:false }));
+  const list = tab==="fav" ? favList : recList;
+  const LIMIT = 6;
+  const shown = expanded ? list : list.slice(0, LIMIT);
+
+  // 즐겨찾기가 하나도 없으면 최근부터 보여준다
+  useEffect(()=>{ if (favList.length===0 && tab==="fav") setTab("recent"); }, [favList.length]);
+
+  const open = (it)=>{ setPicked(it); setAmt("1"); };
+  // 빈칸이면 1인분, 숫자를 넣었으면 그 값(최소 0.1)을 쓴다.
+  // num("0")은 0이라 `|| 1`로 처리하면 0을 1로 착각하므로 문자열로 판단한다.
+  const mult = (v)=> String(v).trim()==="" ? 1 : Math.max(0.1, num(v));
+  const commit = () => {
+    if (!picked) return;
+    const m = mult(amt);
+    const f = picked.item;
+    onAdd([{ id:uid(),
+      name: m===1 ? f.name : `${f.name} ${m}인분`,
+      protein: Math.round(num(f.protein)*m*10)/10,
+      carbs:   Math.round(num(f.carbs)*m*10)/10,
+      sugar:   Math.round(num(f.sugar)*m*10)/10,
+      fat:     Math.round(num(f.fat)*m*10)/10,
+      kcal:    Math.round(num(f.kcal)*m),
+      liquidMl:Math.round(num(f.liquidMl)*m)||0 }]);
+    setFlash(f.name);
+    setTimeout(()=>setFlash(""), 1300);
+    setPicked(null);
+  };
+
+  if (favList.length===0 && recList.length===0) return null;
+
+  return (
+    <Card>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <span style={lbl}>빠른 추가</span>
+        <div style={{ display:"flex", gap:5 }}>
+          {[["fav",`⭐ ${favList.length}`],["recent",`최근 ${recList.length}`]].map(([k,label])=>(
+            <button key={k} onClick={()=>{ setTab(k); setExpanded(false); }}
+              style={{...chip(tab===k, k==="fav"?"#FFD24B":TYPES.push.color), padding:"5px 11px", fontSize:11.5}}>{label}</button>
+          ))}
+        </div>
+      </div>
+
+      {flash && (
+        <div style={{ fontSize:11.5, color:TYPES.legs.color, fontWeight:700, marginTop:8 }}>
+          "{flash}" 추가됐어요
+        </div>
+      )}
+
+      {list.length===0 ? (
+        <div style={{ fontSize:11.5, color:C.muted, marginTop:9, lineHeight:1.6 }}>
+          {tab==="fav"
+            ? "아직 별표한 음식이 없어요. 검색 결과나 식단 목록에서 ★을 누르면 여기 모여요."
+            : "기록한 음식이 아직 없어요."}
+        </div>
+      ) : (
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:10 }}>
+          {shown.map(({item, count, fav})=>(
+            <span key={item.name} style={{ display:"inline-flex", alignItems:"center", borderRadius:999,
+              border:`1px solid ${C.line}`, background:C.surface2, overflow:"hidden" }}>
+              <button onClick={()=>open({item})}
+                style={{ background:"none", border:"none", cursor:"pointer", padding:"7px 10px",
+                  color:C.text, fontSize:12.5, fontWeight:700, display:"flex", alignItems:"center", gap:5 }}>
+                {item.name}
+                <span style={{ fontSize:10, color:C.muted, fontWeight:600 }}>
+                  {Math.round(num(item.kcal))}{tab==="recent"&&count>1?` · ${count}회`:""}
+                </span>
+              </button>
+              {/* 별표 켜고 끄기 — 목록을 직접 정리할 수 있게 */}
+              <button onClick={()=> fav ? onUnstar(item.id) : onStar(item)}
+                title={fav?"별표 해제":"별표"}
+                style={{ background:"none", border:"none", borderLeft:`1px solid ${C.line}`,
+                  cursor:"pointer", padding:"7px 9px", fontSize:11,
+                  color: fav ? "#FFD24B" : C.muted }}>{fav ? "★" : "☆"}</button>
+            </span>
+          ))}
+          {list.length>LIMIT && (
+            <button onClick={()=>setExpanded(v=>!v)}
+              style={{ background:"none", border:`1px dashed ${C.line}`, borderRadius:999,
+                padding:"7px 12px", cursor:"pointer", color:C.muted, fontSize:11.5, fontWeight:700 }}>
+              {expanded ? "접기" : `+${list.length-LIMIT}`}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 양 입력 — 매번 달라지므로 직접 넣게 한다 */}
+      {picked && (
+        <div style={{ marginTop:11, padding:"12px", background:C.surface2, borderRadius:11 }}>
+          <div style={{ fontSize:12.5, fontWeight:800, marginBottom:8 }}>{picked.item.name}</div>
+          <div style={{ display:"flex", gap:5, marginBottom:8 }}>
+            {["0.5","1","1.5","2"].map(v=>(
+              <button key={v} onClick={()=>setAmt(v)}
+                style={{...chip(amt===v, TYPES.push.color), flex:1, textAlign:"center", padding:"7px 0", fontSize:11.5}}>
+                {v==="0.5"?"½":v}인분
+              </button>
+            ))}
+          </div>
+          <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+            <input value={amt} onChange={(e)=>setAmt(e.target.value.replace(/[^0-9.]/g,""))}
+              inputMode="decimal" placeholder="예: 1.3"
+              style={{...inp, flex:1, minWidth:0, textAlign:"center", fontSize:15, fontWeight:800}} />
+            <span style={{ fontSize:11.5, color:C.muted, flexShrink:0 }}>인분</span>
+          </div>
+          <div style={{ fontSize:10.5, color:C.muted, marginTop:7 }}>
+            {(()=>{ const m=mult(amt);
+              return `단백질 ${Math.round(num(picked.item.protein)*m*10)/10}g · ${Math.round(num(picked.item.kcal)*m)}kcal`; })()}
+          </div>
+          <div style={{ display:"flex", gap:7, marginTop:10 }}>
+            <button onClick={()=>setPicked(null)} style={{...ghost, flex:1}}>취소</button>
+            <button onClick={commit} style={{...primary(TYPES.legs.color), flex:2}}>오늘 식단에 추가</button>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function FoodSearch({ addFoodsToday, customFoods, mutate, schedule, favorites, mealSets, target, tdee, surplus, addFavorite, removeFavorite }) {
   const [q, setQ] = useState("");
   const [cat, setCat] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -209,36 +337,12 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule, favorites, m
           onClear={clearFilters} />
       )}
 
-      {/* 빠른 추가 — 최근·자주 먹은 음식 */}
-      {quickList.length>0 && !q && !cat && (
-        <Card>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-            <span style={lbl}>빠른 추가</span>
-            <div style={{ display:"flex", gap:5 }}>
-              {[["recent","최근"],["frequent","자주"]].map(([k,label])=>(
-                <button key={k} onClick={()=>setQuickSort(k)} style={{...chip(quickSort===k, TYPES.push.color), padding:"5px 11px", fontSize:11.5}}>{label}</button>
-              ))}
-            </div>
-          </div>
-          <div style={{ fontSize:10.5, color:C.muted, marginTop:6 }}>
-            {quickSort==="recent" ? "최근 먹은 순서대로. 탭하면 오늘 식단에 그대로 추가돼요." : "자주 먹은 순서대로. 탭 한 번이면 끝."}
-          </div>
-          <div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:10 }}>
-            {quickList.map((qf)=>{
-              const done = quickAdded[qf.item.name];
-              return (
-                <button key={qf.item.name} onClick={()=>quickAdd(qf.item)}
-                  style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 12px", borderRadius:999, cursor:"pointer",
-                    border:`1px solid ${done?TYPES.legs.color:C.line}`, background: done?tint(TYPES.legs.color,0.14):C.surface2,
-                    color: done?TYPES.legs.color:C.text, fontSize:12.5, fontWeight:700, transition:"all .15s" }}>
-                  <span>{done ? "추가됨 ✓" : qf.item.name}</span>
-                  {!done && <span style={{ fontSize:10.5, color:C.muted, fontWeight:600 }}>{Math.round(num(qf.item.kcal))}kcal{quickSort==="frequent"&&qf.count>1?` · ${qf.count}회`:""}</span>}
-                </button>
-              );
-            })}
-          </div>
-        </Card>
+      {/* 빠른 추가 — 별표·최근. 항목을 누르면 양을 정해서 넣는다 */}
+      {!q && !cat && (
+        <QuickPick favorites={favorites} recent={quickList} onAdd={addFoodsToday}
+          onUnstar={removeFavorite} onStar={addFavorite} />
       )}
+
 
       {/* 식단 세트 — 검색 중엔 숨겨서 결과에 집중 */}
       {!q.trim() && (
@@ -418,6 +522,17 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule, favorites, m
                 {catIcon(displayCat(e))} {displayCat(e)} · {servingLabel(e)}
               </div>
             </div>
+            {/* 별표 — 눌러두면 위 "빠른 추가"에 모여 다음부터 바로 넣을 수 있다 */}
+            {(()=>{
+              const fav = (favorites||[]).find(f=>f.name===e.key);
+              return (
+                <button onClick={()=> fav
+                    ? removeFavorite(fav.id)
+                    : addFavorite({ name:e.key, protein:e.protein, carbs:e.carbs, sugar:e.sugar, fat:e.fat, kcal:e.kcal, liquidMl:e.liquidMl })}
+                  title={fav?"별표 해제":"별표"}
+                  style={{ ...xBtn, fontSize:15, color: fav ? "#FFD24B" : C.muted }}>{fav ? "★" : "☆"}</button>
+              );
+            })()}
             <button onClick={()=>setEditKey(editKey===e.key?null:e.key)} title="수정" style={{ ...xBtn, fontSize:14 }}>✏️</button>
             {e.custom && <ConfirmX onConfirm={()=>removeCustomFood(e.key)} label="이 음식 삭제" />}
           </div>
