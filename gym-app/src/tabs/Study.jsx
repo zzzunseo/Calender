@@ -64,42 +64,65 @@ const parseVocabLines = (text) => {
       if (idx > 0) parts = [line.slice(0,idx).trim(), line.slice(idx).trim()];
       else parts = [line];
     }
-    const term = parts[0];
-    if (!term) continue;
-    // 한 단어에 품사가 여러 개일 수 있다(예: prompt = 형용사·동사).
-    // 조각 중 품사로 읽히는 것은 모두 모으고, 나머지를 뜻으로 본다.
+    // 사전 표기처럼 "adhere v 지키다"로 쓰면 품사가 단어에 붙어버린다.
+    // 단어 끝에 품사가 붙어 있으면 떼어내고 품사로 인정한다.
     const posSet = [];
     const addPos = (p)=>{ if (p && !posSet.includes(p)) posSet.push(p); };
-    let meaningParts = [];
-    for (const seg of parts.slice(1)) {
-      const p = normPos(seg);
-      if (p) { addPos(p); continue; }
-      // "n 요금", "형용사 신속한"처럼 조각 앞에 품사가 붙은 경우도 분리한다
-      const head = seg.split(/\s+/)[0];
-      const ph = normPos(head);
-      if (ph && seg.split(/\s+/).length >= 2) {
-        addPos(ph);
-        meaningParts.push(seg.split(/\s+/).slice(1).join(" "));
-        continue;
-      }
-      meaningParts.push(seg);
-    }
-    let meaning = meaningParts.join(", ");
-    // 뜻 안에 "(adj)" 같은 괄호 표기가 섞인 경우도 뽑아낸다 (여러 개 가능)
-    meaning = meaning.replace(/\(([^)]+)\)/g, (whole, inner) => {
-      const p = normPos(inner);
-      if (p) { addPos(p); return ""; }
-      return whole;
-    });
-    // 띄어쓰기로만 쓴 경우 끝에 붙은 품사를 떼어낸다 ("할당하다 v", "신속한 형용사")
-    if (posSet.length === 0) {
-      const toks = meaning.trim().split(/\s+/);
+    let term = parts[0];
+    {
+      const toks = term.split(/\s+/);
       if (toks.length >= 2) {
         const p = normPos(toks[toks.length-1]);
-        if (p) { addPos(p); meaning = toks.slice(0,-1).join(" "); }
+        if (p) { addPos(p); term = toks.slice(0,-1).join(" "); }
       }
     }
-    meaning = meaning.replace(/\s{2,}/g, " ").replace(/^[,\s]+|[,\s]+$/g,"").replace(/,\s*,/g, ",");
+    if (!term) continue;
+
+    // 뜻은 "어느 품사의 뜻인지"를 잃지 않도록 조각별로 품사를 함께 들고 간다
+    // 뜻 부분을 낱말 단위로 훑는다.
+    // 품사가 나오면 거기서부터 새 뜻이 시작된 것으로 보므로,
+    // "n 명령하다 v 권한"처럼 한 덩어리로 적어도 뜻마다 품사가 제대로 붙는다.
+    const segs = [];   // { pos, text }
+    let cur = null;
+    const flush = ()=>{ if (cur && cur.text.trim()) segs.push({ pos:cur.pos, text:cur.text.trim() }); cur = null; };
+    for (const seg of parts.slice(1)) {
+      for (const w of seg.split(/\s+/)) {
+        if (!w) continue;
+        const p = normPos(w);
+        if (p) {                       // 품사를 만나면 새 뜻 시작
+          addPos(p);
+          flush();
+          cur = { pos:p, text:"" };
+          continue;
+        }
+        if (!cur) cur = { pos:"", text:"" };
+        cur.text += (cur.text ? " " : "") + w;
+      }
+      flush();                          // 조각(슬래시·쉼표)이 끝나면 뜻도 끊는다
+    }
+    flush();
+    // 단어 뒤에 붙어 있던 품사는 첫 번째 뜻의 것으로 본다 ("adhere v 지키다")
+    if (segs.length && !segs[0].pos && posSet.length) segs[0].pos = posSet[0];
+
+    // 괄호 표기 "(adj)"도 품사로 인정
+    for (const sg of segs) {
+      sg.text = sg.text.replace(/\(([^)]+)\)/g, (whole, inner) => {
+        const p = normPos(inner);
+        if (p) { addPos(p); if (!sg.pos) sg.pos = p; return ""; }
+        return whole;
+      }).replace(/\s{2,}/g, " ").trim();
+    }
+
+    // 품사가 붙은 뜻이 둘 이상이면 "v. 명령하다, n. 권한"처럼 짝을 보이게 적는다.
+    // 하나뿐이면 배지로 충분하므로 뜻은 그대로 둔다.
+    const tagged = segs.filter(x=>x.pos && x.text);
+    const showPair = tagged.length >= 2 && new Set(tagged.map(x=>x.pos)).size >= 2;
+    let meaning = segs
+      .filter(x=>x.text)
+      .map(x=> (showPair && x.pos) ? `${posInfo(x.pos)?.short || x.pos} ${x.text}` : x.text)
+      .join(", ");
+
+    meaning = meaning.replace(/^[,\s]+|[,\s]+$/g,"").replace(/,\s*,/g, ",");
     out.push({ term, meaning, pos: posSet.join(",") });
   }
   return out;
