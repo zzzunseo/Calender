@@ -546,6 +546,38 @@ function StudyLog({ data, persist, mutate, days }) {
 
 // 단어 퀴즈 — 4지선다. 틀리면 숙련도가 내려가서 복습 대기열로 돌아온다
 
+// ===== 빈칸 채우기 =====
+// 예문에서 그 단어를 찾아 ____ 로 가린다. 토익 Part 5와 같은 형식이라 실전에 가깝다.
+// 영어는 어형이 변하므로(allocate → allocated/allocating) 어간을 기준으로 찾는다.
+const clozeStem = (term) => {
+  const t = String(term||"").trim().toLowerCase();
+  if (t.length <= 3) return t;
+  // 흔한 어미를 떼어 어간만 남긴다
+  return t.replace(/(ing|ed|es|s|ly|ment|tion|ness)$/,"");
+};
+// 예문에서 단어(어형 변화 포함)를 찾아 빈칸으로 바꾼다. 못 찾으면 null.
+const makeCloze = (sentence, term) => {
+  const text = String(sentence||"").trim();
+  if (!text) return null;
+  const t = String(term||"").trim();
+  if (!t) return null;
+
+  // 1) 원형이 그대로 있으면 그것부터 (숙어처럼 띄어쓰기가 있는 경우 포함)
+  const escape = (x)=> x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const whole = new RegExp(`(^|[^A-Za-z])(${escape(t)})(?![A-Za-z])`, "i");
+  if (whole.test(text)) return text.replace(whole, (m,a)=> a + "______");
+
+  // 2) 어형이 바뀐 경우: 어간으로 시작하는 낱말을 찾는다
+  const stem = clozeStem(t);
+  if (stem.length >= 4) {
+    const infl = new RegExp(`(^|[^A-Za-z])(${escape(stem)}[A-Za-z]{0,4})(?![A-Za-z])`, "i");
+    if (infl.test(text)) return text.replace(infl, (m,a)=> a + "______");
+  }
+  return null;   // 예문에 단어가 없으면 문제로 못 쓴다
+};
+// 빈칸 문제로 쓸 수 있는 단어만 추린다
+const clozeReady = (v) => !!(v && v.term && v.note && makeCloze(v.note, v.term));
+
 function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
   const [dir, setDir] = useState("t2m");   // t2m: 단어→뜻 / m2t: 뜻→단어
   const [scope, setScope] = useState("weak"); // weak: 미숙련만 / all: 전체
@@ -557,7 +589,10 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
   const [wrongList, setWrongList] = useState([]);
   const [starredMap, setStarred] = useState({}); // 결과 화면에서 누른 별표를 즉시 반영
 
-  const pool = vocab.filter(v=>v.term && v.meaning);
+  // 빈칸 모드는 예문에서 그 단어를 찾을 수 있어야 문제를 만들 수 있다
+  const pool = dir==="cloze"
+    ? vocab.filter(clozeReady)
+    : vocab.filter(v=>v.term && v.meaning);
   const scoped = scope==="weak" ? pool.filter(v=>!isMastered(v))
     : scope==="star" ? pool.filter(v=>v.starred)
     : scope==="wrong" ? pool.filter(isOftenWrong) : pool;
@@ -568,18 +603,24 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
     // 미숙련·오래된 것 우선으로 섞되 완전 고정은 아니게
     const sorted = base.sort((a,b)=>reviewScore(b)-reviewScore(a)).slice(0, 30);
     const picks = sorted.sort(()=>Math.random()-0.5).slice(0, Math.min(10, sorted.length));
+    // 오답 보기는 전체 단어에서 뽑는다 (빈칸 모드에서 예문 있는 단어가 적어도 보기가 채워지도록)
+    const distractPool = vocab.filter(x=>x.term);
     const made = picks.map((v)=>{
-      const others = pool.filter(o=>o.id!==v.id)
+      const others = distractPool.filter(o=>o.id!==v.id)
         .sort(()=>Math.random()-0.5).slice(0,3);
       const opts = [v, ...others].sort(()=>Math.random()-0.5);
-      return { v, opts };
+      return { v, opts, cloze: dir==="cloze" ? makeCloze(v.note, v.term) : null };
     });
     setQs(made); setQi(0); setPicked(null); setCorrect(0); setWrongList([]); setStarted(true);
   };
 
   const cur = qs[qi] || null;
-  const label = (v)=> dir==="t2m" ? v.meaning : v.term;
-  const question = (v)=> dir==="t2m" ? v.term : v.meaning;
+  // 퀴즈에서는 품사를 숨긴다. 뜻 앞에 붙은 "n. / v." 표기도 답을 좁혀주는 힌트라 함께 지운다.
+  const hidePos = (text)=> String(text||"")
+    .replace(/(^|,\s*)(n|v|adj|adv|prep|conj)\.\s*/g, "$1")
+    .trim();
+  const label = (v)=> dir==="t2m" ? hidePos(v.meaning) : v.term;   // 빈칸·뜻→단어는 단어를 보기로
+  const question = (v)=> dir==="t2m" ? v.term : hidePos(v.meaning);
 
   const choose = (opt) => {
     if (picked) return;
@@ -611,10 +652,22 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
           ) : !started ? (<>
             <div style={{ fontSize:11, color:C.muted, fontWeight:700, marginBottom:7 }}>문제 방향</div>
             <div style={{ display:"flex", gap:6 }}>
-              {[["t2m","단어 → 뜻"],["m2t","뜻 → 단어"]].map(([k,l])=>(
-                <button key={k} onClick={()=>setDir(k)} style={{...chip(dir===k, STUDY_ACCENT), flex:1, textAlign:"center", padding:"9px 0"}}>{l}</button>
-              ))}
+              {[["t2m","단어 → 뜻"],["m2t","뜻 → 단어"],["cloze","빈칸 채우기"]].map(([k,l])=>{
+                const n = k==="cloze" ? vocab.filter(clozeReady).length : vocab.filter(v=>v.term&&v.meaning).length;
+                const off = k==="cloze" && n < 1;
+                return (
+                  <button key={k} onClick={()=>!off && setDir(k)} disabled={off}
+                    style={{...chip(dir===k, STUDY_ACCENT), flex:1, textAlign:"center", padding:"9px 0",
+                      fontSize:11.5, opacity: off?0.4:1}}>{l}</button>
+                );
+              })}
             </div>
+            {dir==="cloze" && (
+              <div style={{ fontSize:10.5, color:C.muted, marginTop:6, lineHeight:1.55 }}>
+                예문이 있는 단어로 문제를 만들어요 ({vocab.filter(clozeReady).length}개).
+                예문은 단어 추가·수정할 때 <b style={{color:C.text}}>예문·메모</b> 칸에 적으면 돼요.
+              </div>
+            )}
             <div style={{ fontSize:11, color:C.muted, fontWeight:700, margin:"14px 0 7px" }}>범위</div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
               {[["weak","아직 못 외운 것", pool.filter(v=>!isMastered(v)).length, C.amber],
@@ -681,12 +734,13 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
             <div style={{ padding:"22px 14px", borderRadius:13, background:C.surface2, textAlign:"center",
               border:`1px solid ${C.line}`, minHeight:74, display:"flex", flexDirection:"column",
               alignItems:"center", justifyContent:"center", gap:7 }}>
-              {dir==="t2m" && posList(cur.v.pos).length>0 && (
-                <span style={{ fontSize:10, fontWeight:800, color:posList(cur.v.pos)[0].color }}>
-                  {posList(cur.v.pos).map(p=>p.short).join(" ")}
-                </span>
+              {dir==="cloze" ? (
+                <div style={{ fontSize:16, fontWeight:700, lineHeight:1.6, wordBreak:"break-word", textAlign:"left" }}>
+                  {cur.cloze}
+                </div>
+              ) : (
+                <div style={{ fontSize:20, fontWeight:800, lineHeight:1.35, wordBreak:"break-word" }}>{question(cur.v)}</div>
               )}
-              <div style={{ fontSize:20, fontWeight:800, lineHeight:1.35, wordBreak:"break-word" }}>{question(cur.v)}</div>
               {cur.v.tag && <div style={{ fontSize:10, color:C.muted }}>{cur.v.tag}</div>}
             </div>
 
@@ -712,6 +766,17 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
               })}
             </div>
 
+            {/* 답을 고른 뒤에는 원래 문장과 뜻을 보여줘 문맥째로 익히게 한다 */}
+            {picked && dir==="cloze" && (
+              <div style={{ marginTop:11, padding:"11px 12px", background:C.surface2, borderRadius:10 }}>
+                <div style={{ fontSize:12.5, lineHeight:1.6, color:C.text }}>
+                  {String(cur.v.note||"")}
+                </div>
+                <div style={{ fontSize:11.5, color:STUDY_ACCENT, fontWeight:700, marginTop:5 }}>
+                  {cur.v.term} — {cur.v.meaning}
+                </div>
+              </div>
+            )}
             {picked && (
               <button onClick={next} style={{...primary(STUDY_ACCENT), width:"100%", marginTop:13}}>
                 {qi+1 >= qs.length ? "결과 보기" : "다음 문제"}
