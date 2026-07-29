@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { createPortal } from "react-dom";
+import React, { useState, useEffect } from "react";
 import { TYPES, C, todayKey, uid, tint, num, extractJSON, Card, Row, SheetLayer, ConfirmX, lbl, inp, primary, ghost, xBtn, chip, sheet, grip, callClaudeAPI } from "../shared.jsx";
 import { localBrandSearch, makeCustomEntry, searchAllFoods, servingLabel, displayCat, CATEGORIES, gramsPerServing, portionHint, HAND_GUIDE, CONTAINER_GUIDE, CAT_PORTION_HINT, CATEGORY_GROUPS, catIcon, categoryCounts, NUTRI_FILTERS, proteinPer100kcal, categoryUsage } from "../foodDB.js";
 

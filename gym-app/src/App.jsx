@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
-import { createPortal } from "react-dom";
 import { C, todayKey, uid, extraWater, num, emptyDay, normalize, computeTDEE, UndoToast, QuickAdd, SaveBadge, TabBar } from "./shared.jsx";
 
 // 탭 화면은 실제로 들어갈 때만 불러온다(코드 분할).

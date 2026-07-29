@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { createPortal } from "react-dom";
+import React, { useState, useEffect } from "react";
 import { TYPES, STUDY_ACCENT, C, keyOf, todayKey, uid, tint, num, normalize, MACRO_GOALS, rd1, LineChart, Card, Row, MiniCard, Collapsible, ConfirmX, lbl, inp, primary, ghost, stepBtn, chip } from "../shared.jsx";
 
 const ACTIVITY = [

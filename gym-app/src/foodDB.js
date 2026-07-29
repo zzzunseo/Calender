@@ -889,14 +889,6 @@ export function searchAllFoods(query = "", customEntries = [], category = null) 
   return scored.sort((a,b)=> b[0]-a[0]).map(([,e])=>e);
 }
 
-// 표시할 카테고리 칩 목록. 내 음식이 있으면 맨 앞에, 실제 항목이 있는 카테고리만 노출.
-export function allCategories(customEntries = []) {
-  const present = new Set();
-  for (const e of FOOD_DB) present.add(e.cat);
-  for (const e of customEntries) present.add(normCat(e));
-  const base = CATEGORIES.filter((c) => present.has(c));
-  return customEntries.length ? ["내 음식", ...base] : base;
-}
 
 // 1회 제공량 표기 (카테고리별 자연스러운 단위로)
 const SERVING_BY_CAT = {
@@ -917,7 +909,6 @@ const SERVING_BY_CAT = {
   "반찬·야채": "1인분 기준",
   "국·탕": "1인분 기준",
   "면류": "1인분 기준",
-  "분식": "1인분 기준",
   "고기·구이": "1인분(150g) 기준",
   "과일": "1회분 기준",
   "소스·양념": "1큰술(≈동전크기) 기준",

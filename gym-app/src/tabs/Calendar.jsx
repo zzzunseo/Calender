@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { createPortal } from "react-dom";
-import { TYPES, PARTS, PART_GROUPS, partBreakdown, CARDIO, WEEKDAYS, STUDY_ACCENT, MOODS, C, keyOf, todayKey, uid, extraWater, tint, num, didWorkout, emptyDay, stepsToKcal, burnedKcal, planDate, QuickWorkoutBlock, SleepBlock, FoodSection, LineChart, SheetLayer, ConfirmX, inp, primary, ghost, stepBtn, chip, sheet, grip } from "../shared.jsx";
+import React, { useState, useEffect } from "react";
+import { TYPES, PARTS, PART_GROUPS, partBreakdown, CARDIO, WEEKDAYS, STUDY_ACCENT, MOODS, C, keyOf, todayKey, uid, extraWater, tint, num, didWorkout, emptyDay, stepsToKcal, burnedKcal, planDate, QuickWorkoutBlock, SleepBlock, FoodSection, LineChart, SheetLayer, ConfirmX, inp, primary, ghost, stepBtn, chip, sheet, grip, cardioInfo } from "../shared.jsx";
 
 const groupOfPart = (p)=> PART_GROUPS.find(g=>g.parts.includes(p)) || null;
 // 좁은 캘린더 칸에서도 읽히도록 부위명을 줄인다
@@ -330,7 +329,7 @@ function LogWeek({ weekAnchor, setWeekAnchor, schedule, studyDates, calWeight, o
                     {kcalIn>0 && <span style={{ color:"#FF8FB0", fontWeight:700 }}>🍽 {Math.round(kcalIn)}</span>}
                     {burn>0 && <span style={{ color:"#5AD1A0", fontWeight:700 }}>🔥 {burn}</span>}
                     {water>0 && <span style={{ color:"#6BC5F0", fontWeight:700 }}>💧 {water}잔</span>}
-                    {e?.cardio && <span style={{ color:CARDIO[e.cardio.type].color, fontWeight:700 }}>🏃 {e.cardio.min}분</span>}
+                    {e?.cardio && <span style={{ color:cardioInfo(e.cardio.type).color, fontWeight:700 }}>🏃 {e.cardio.min}분</span>}
                     {studyDates.has(kk) && <span style={{ color:STUDY_ACCENT, fontWeight:700 }}>📚</span>}
                   </div>
                 </>)}
@@ -1066,7 +1065,7 @@ export default function Calendar({ data, persist, updateDay, favProps, apiKey, c
                     lineHeight:1.15, letterSpacing:-0.3, whiteSpace:"nowrap" }}>{metricVal}</span>
                 )}
               </div>
-              {e?.cardio && <span style={{ position:"absolute", top:6, right:6, width:7, height:7, borderRadius:"50%", background:CARDIO[e.cardio.type].color }} />}
+              {e?.cardio && <span style={{ position:"absolute", top:6, right:6, width:7, height:7, borderRadius:"50%", background:cardioInfo(e.cardio.type).color }} />}
               {e?.foods?.length>0 && <span style={{ position:"absolute", bottom:6, right:6, width:6, height:6, borderRadius:"50%", background:TYPES.legs.color }} />}
               {studyDates.has(kk) && <span style={{ position:"absolute", bottom:6, left:6, width:6, height:6, borderRadius:"50%", background:STUDY_ACCENT }} />}
             </button>

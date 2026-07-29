@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { createPortal } from "react-dom";
-import { TYPES, partBreakdown, CARDIO, WEEKDAYS, vocabTypeInfo, posInfo, REVIEW_GAP, dueList, speakWord, STUDY_ACCENT, SLEEP_ACCENT, MOODS, C, keyOf, todayKey, uid, extraWater, tint, num, show1, fmtMin, last7, lastNDays, didWorkout, emptyDay, stepsToKcal, burnedKcal, MACRO_GOALS, rd1, macroTargets, planDate, QuickWorkoutBlock, CONDITION_LABELS, SleepBlock, FoodSection, LineChart, Bars7, Card, GlassCard, useCountUp, Row, MiniCard, Collapsible, ConfirmX, lbl, inp, primary, ghost, stepBtn, chip } from "../shared.jsx";
+import { useState, useEffect, useRef } from "react";
+import { TYPES, partBreakdown, CARDIO, WEEKDAYS, vocabTypeInfo, posInfo, REVIEW_GAP, dueList, speakWord, STUDY_ACCENT, SLEEP_ACCENT, MOODS, C, keyOf, todayKey, uid, extraWater, tint, num, show1, fmtMin, last7, lastNDays, didWorkout, emptyDay, stepsToKcal, burnedKcal, MACRO_GOALS, rd1, macroTargets, planDate, QuickWorkoutBlock, CONDITION_LABELS, SleepBlock, FoodSection, LineChart, Bars7, Card, GlassCard, useCountUp, Row, MiniCard, Collapsible, ConfirmX, lbl, inp, primary, ghost, stepBtn, chip, cardioInfo } from "../shared.jsx";
 
 export default function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps, apiKey, customFoods, mutate }) {
   const k = todayKey();
@@ -370,8 +369,8 @@ export default function Today({ data, updateDay, addFoodsToday, target, tdee, we
       </div>
       {(day.cardio || day.lifts.length>0 || Object.keys(day.partSets||{}).length>0) && (
         <Card>
-          {day.cardio && <div style={{ fontSize:13, color:CARDIO[day.cardio.type].color, fontWeight:700 }}>
-            유산소 · {CARDIO[day.cardio.type].label} {day.cardio.min}분 {num(day.cardio.kcal)>0?`· ${num(day.cardio.kcal)}kcal`:""}</div>}
+          {day.cardio && <div style={{ fontSize:13, color:cardioInfo(day.cardio.type).color, fontWeight:700 }}>
+            유산소 · {cardioInfo(day.cardio.type).label} {day.cardio.min}분 {num(day.cardio.kcal)>0?`· ${num(day.cardio.kcal)}kcal`:""}</div>}
           {Object.keys(day.partSets||{}).length>0 && (
             <div style={{ fontSize:13, marginTop:day.cardio?6:0 }}>
               <b style={{ color:TYPES.push.color }}>부위</b>{" "}

@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { createPortal } from "react-dom";
+import { useState, useRef } from "react";
 import { TYPES, VOCAB_TYPES, vocabTypeInfo, POS_LIST, posInfo, MASTER_LEVEL, isMastered, isOftenWrong, isDueToday, dueList, speakWord, reviewScore, STUDY_ACCENT, C, todayKey, uid, tint, num, fmtMin, last7, LineChart, Bars7, Card, Row, SheetLayer, lbl, inp, primary, ghost, stepBtn, xBtn, chip, sheet, grip, callClaudeAPI } from "../shared.jsx";
 
 const DEFAULT_SUBJECTS = ["토익", "자격증"];
@@ -42,8 +41,11 @@ const parseVocabLines = (text) => {
     const m = line.split(/\s*[\t/|;:]\s*|\s+[-–—]\s+|\s*,\s*/).map(x=>x.trim()).filter(Boolean);
     if (m.length >= 2) parts = m;
     else {
-      // 구분자가 없으면 첫 한글 글자 기준으로 앞=단어, 뒤=뜻
-      const idx = line.search(/[가-힣]/);
+      // 구분자가 없으면 첫 한글 글자 기준으로 앞=단어, 뒤=뜻.
+      // 단, "be subject to ~의 대상이 되다"처럼 물결(~)이 뜻의 시작을 나타내는 경우가 많아
+      // 한글 바로 앞의 물결은 뜻 쪽으로 넘긴다.
+      let idx = line.search(/[가-힣]/);
+      if (idx > 0 && line[idx-1] === "~") idx -= 1;
       if (idx > 0) parts = [line.slice(0,idx).trim(), line.slice(idx).trim()];
       else parts = [line];
     }
@@ -675,6 +677,100 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
 
 // 단어 일괄 추가 — 여러 줄 붙여넣기 + AI 자동 채우기 (폰 입력 부담 줄이기)
 
+// 단어장을 다른 기기로 옮기기 위한 시트.
+// 기록은 기기 안에만 저장되므로, 붙여넣기로 다시 넣을 수 있는 형태로 내보낸다.
+// (전체 백업과 달리 단어장만 다루므로, 받는 쪽의 다른 기록은 건드리지 않는다)
+function VocabShareSheet({ vocab, onClose }) {
+  const [scope, setScope] = useState("all");   // all | weak | star
+  const taRef = useRef(null);
+  const [msg, setMsg] = useState("");
+
+  const list = (vocab||[]).filter(v =>
+    scope==="star" ? v.starred :
+    scope==="weak" ? !isMastered(v) : true);
+
+  // "📥 여러 개"가 그대로 읽을 수 있는 형식으로 만든다
+  const text = list.map(v => {
+    const parts = [v.term];
+    if (v.meaning) parts.push(v.meaning);
+    if (v.pos) parts.push(v.pos);
+    return parts.join(" / ");
+  }).join("\n");
+
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(text); setMsg("복사됐어요. 다른 기기에 붙여넣으세요."); return; } catch(e){}
+    try {
+      const ta = taRef.current;
+      if (ta) { ta.focus(); ta.select();
+        setMsg(document.execCommand("copy") ? "복사됐어요. 다른 기기에 붙여넣으세요."
+                                            : "아래 글을 길게 눌러 직접 복사해주세요."); }
+    } catch(e) { setMsg("아래 글을 길게 눌러 직접 복사해주세요."); }
+  };
+
+  const share = async () => {
+    try {
+      if (navigator.share) { await navigator.share({ title:"단어장", text }); setMsg("보냈어요."); return; }
+    } catch(e) { if (e && e.name === "AbortError") return; }
+    copy();
+  };
+
+  return (
+    <SheetLayer onClose={onClose}>
+      <div onClick={(e)=>e.stopPropagation()} style={sheet}>
+        <div style={{ flexShrink:0 }}>
+          <div style={grip} />
+          <div style={{ fontSize:16, fontWeight:800 }}>단어장 옮기기</div>
+          <div style={{ fontSize:11, color:C.muted, marginTop:4, marginBottom:12, lineHeight:1.6 }}>
+            컴퓨터에서 정리한 단어를 휴대폰으로(또는 반대로) 옮길 때 써요.
+            받는 기기에서 <b style={{color:C.text}}>📥 여러 개</b>에 붙여넣으면 되고,
+            이미 있는 단어는 알아서 걸러져요.
+          </div>
+        </div>
+
+        <div style={{ flex:"1 1 auto", minHeight:0, overflowY:"auto", paddingRight:2, overscrollBehavior:"contain" }}>
+          <div style={{ display:"flex", gap:5 }}>
+            {[["all",`전체 ${(vocab||[]).length}`],
+              ["weak",`미숙련 ${(vocab||[]).filter(v=>!isMastered(v)).length}`],
+              ["star",`⭐ ${(vocab||[]).filter(v=>v.starred).length}`]].map(([k,label])=>(
+              <button key={k} onClick={()=>setScope(k)}
+                style={{...chip(scope===k, STUDY_ACCENT), flex:1, textAlign:"center", padding:"8px 0", fontSize:11.5}}>{label}</button>
+            ))}
+          </div>
+
+          {list.length===0 ? (
+            <div style={{ fontSize:12, color:C.muted, marginTop:12, lineHeight:1.6 }}>
+              내보낼 단어가 없어요.
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize:11, color:C.muted, margin:"12px 0 6px" }}>{list.length}개</div>
+              <textarea ref={taRef} readOnly value={text} rows={8}
+                onFocus={(e)=>e.target.select()}
+                style={{...inp, width:"100%", boxSizing:"border-box", resize:"none",
+                  fontFamily:"monospace", fontSize:11.5, lineHeight:1.5}} />
+              <div style={{ display:"flex", gap:7, marginTop:9 }}>
+                <button onClick={copy} style={{...ghost, flex:1}}>복사</button>
+                <button onClick={share} style={{...primary(STUDY_ACCENT), flex:1}}>보내기</button>
+              </div>
+              {msg && <div style={{ fontSize:11.5, color:STUDY_ACCENT, marginTop:9, lineHeight:1.55 }}>{msg}</div>}
+              <div style={{ fontSize:10.5, color:C.muted, marginTop:10, lineHeight:1.6 }}>
+                복사한 뒤 카카오톡 "나에게 보내기"나 메모 앱에 붙여넣어 옮기면 편해요.
+                숙련도·별표 같은 학습 기록은 함께 넘어가지 않고, 단어·뜻·품사만 옮겨져요.
+              </div>
+            </>
+          )}
+          <div style={{ height:8 }} />
+        </div>
+
+        <div style={{ flexShrink:0, padding:"12px 0 calc(14px + env(safe-area-inset-bottom))",
+          borderTop:`1px solid ${C.line}`, background:C.surface }}>
+          <button onClick={onClose} style={{...ghost, width:"100%"}}>닫기</button>
+        </div>
+      </div>
+    </SheetLayer>
+  );
+}
+
 function VocabBulkSheet({ apiKey, existingTerms, onAdd, onClose }) {
   const [text, setText] = useState("");
   const [type, setType] = useState("word");
@@ -834,6 +930,7 @@ function StudyVocab({ data, mutate, apiKey }) {
   const [draft, setDraft] = useState({ type:"word", term:"", meaning:"", note:"", tag:"", pos:"" });
   const [filterMode, setFilterMode] = useState("all"); // all | star | weak | wrong
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [quizOpen, setQuizOpen] = useState(false);
 
   const save = (list, undoLabel)=> mutate((prev)=>({ ...prev, vocab:list }), undoLabel);
@@ -1045,6 +1142,8 @@ function StudyVocab({ data, mutate, apiKey }) {
       <Card>
         <Row><span style={lbl}>목록</span>
           <span style={{ display:"flex", gap:12 }}>
+            <button onClick={()=>setShareOpen(true)} style={{ background:"none", border:"none", color:"#6BC5F0",
+              fontSize:12, fontWeight:800, cursor:"pointer", padding:0 }}>📤 옮기기</button>
             <button onClick={()=>setBulkOpen(true)} style={{ background:"none", border:"none", color:"#C9A6FF",
               fontSize:12, fontWeight:800, cursor:"pointer", padding:0 }}>📥 여러 개</button>
             <button onClick={()=>setAddOpen(v=>!v)} style={{ background:"none", border:"none", color:STUDY_ACCENT,
@@ -1167,6 +1266,7 @@ function StudyVocab({ data, mutate, apiKey }) {
         </>)}
       </Card>
 
+      {shareOpen && <VocabShareSheet vocab={vocab} onClose={()=>setShareOpen(false)} />}
       {bulkOpen && <VocabBulkSheet apiKey={apiKey} existingTerms={existingTerms}
         onAdd={addMany} onClose={()=>setBulkOpen(false)} />}
       {quizOpen && <VocabQuiz vocab={vocab} onAnswer={bump} onStar={toggleStar} onClose={()=>setQuizOpen(false)} />}

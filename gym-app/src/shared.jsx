@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { lookupLocalFoods } from "./foodDB.js";
 
@@ -40,6 +40,9 @@ export const CARDIO = {
   running:   { label: "런닝머신", color: "#5AD1A0" },
   etc:       { label: "기타", color: "#9AA3AF" },   // 사이클·수영·등산 등
 };
+// 저장된 기록의 유산소 종류가 위 목록에 없을 수도 있다(예전 데이터·백업 복원 등).
+// 그때 CARDIO[없는키].color 를 읽으면 화면 전체가 죽으므로 항상 이 함수로 조회한다.
+export const cardioInfo = (k)=> CARDIO[k] || CARDIO.etc;
 
 export const WEEKDAYS = ["일","월","화","수","목","금","토"];
 

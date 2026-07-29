@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { createPortal } from "react-dom";
-import { TYPES, PARTS, CARDIO, isMastered, isOftenWrong, STUDY_ACCENT, SLEEP_ACCENT, MOODS, C, keyOf, todayKey, tint, num, fmtMin, lastNDays, didWorkout, burnedKcal, rd1, macroTargets, LineChart, Card, GlassCard, useCountUp, Row, lbl, chip } from "../shared.jsx";
+import { useState } from "react";
+import { TYPES, PARTS, CARDIO, isMastered, isOftenWrong, STUDY_ACCENT, SLEEP_ACCENT, MOODS, C, keyOf, todayKey, tint, num, fmtMin, lastNDays, didWorkout, burnedKcal, rd1, macroTargets, LineChart, Card, GlassCard, useCountUp, Row, lbl, chip, cardioInfo } from "../shared.jsx";
 
 const streakInfo = (schedule, checkFn) => {
   let current = 0;
@@ -354,7 +353,7 @@ export default function Stats({ data, target, tdee, weight }) {
   const cardioAvgMin = cardioSessions ? Math.round(cardioMinTotal/cardioSessions) : 0;
   const cardioByType = Object.keys(CARDIO).map((k)=>{
     const ds = perDay.filter(d=>d.cardioType===k);
-    return { k, ...CARDIO[k], sessions:ds.length, min:ds.reduce((s,d)=>s+d.cardioMin,0), kcal:ds.reduce((s,d)=>s+d.kcalOut,0) };
+    return { k, ...cardioInfo(k), sessions:ds.length, min:ds.reduce((s,d)=>s+d.cardioMin,0), kcal:ds.reduce((s,d)=>s+d.kcalOut,0) };
   }).filter(t=>t.sessions>0).sort((a,b)=>b.min-a.min);
   const maxCardioType = Math.max(1, ...cardioByType.map(t=>t.min));
   const cardioMaxDay = Math.max(1, ...perDay.map(d=>d.cardioMin));
@@ -677,7 +676,7 @@ export default function Stats({ data, target, tdee, weight }) {
                   <div key={d.dk} style={{ flex:1, minWidth:0, display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
                     <div style={{ flex:1, width:"100%", display:"flex", alignItems:"flex-end" }}>
                       <div title={`${d.cardioMin}분`} style={{ width:"100%", height:`${d.cardioMin>0?Math.max(6,Math.round(d.cardioMin/cardioMaxDay*100)):0}%`,
-                        background: d.cardioType?CARDIO[d.cardioType].color:C.line, borderRadius:"4px 4px 2px 2px", transition:"height .3s" }} />
+                        background: d.cardioType?cardioInfo(d.cardioType).color:C.line, borderRadius:"4px 4px 2px 2px", transition:"height .3s" }} />
                     </div>
                     {range==="week" && <span style={{ fontSize:8.5, color:C.muted, whiteSpace:"nowrap" }}>{d.dk.slice(8)}</span>}
                   </div>
