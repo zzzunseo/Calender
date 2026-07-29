@@ -38,8 +38,23 @@ const parseVocabLines = (text) => {
     const line = rawLine.trim();
     if (!line) continue;
     let parts = null;
-    const m = line.split(/\s*[\t/|;:]\s*|\s+[-–—]\s+|\s*,\s*/).map(x=>x.trim()).filter(Boolean);
-    if (m.length >= 2) parts = m;
+    // 쉼표만으로 나뉜 줄("address 주소, 다루다")은 앞쪽이 "단어+첫 뜻"으로 붙어 있을 수 있다.
+    // 이때 쉼표로 먼저 자르면 단어가 "address 주소"가 되어버리므로,
+    // 확실한 구분자(탭·/·|·;·:·하이픈)가 있을 때만 그것으로 나눈다.
+    const hard = line.split(/\s*[\t/|;:]\s*|\s+[-–—]\s+/).map(x=>x.trim()).filter(Boolean);
+    const m = hard.length >= 2
+      ? hard.flatMap(x=>x.split(/\s*,\s*/).map(y=>y.trim()).filter(Boolean))
+      : line.split(/\s*,\s*/).map(x=>x.trim()).filter(Boolean);
+    if (m.length >= 2) {
+      // 첫 조각이 "issue 문제"처럼 단어와 첫 뜻이 붙어 있으면 한글 기준으로 한 번 더 나눈다.
+      // (슬래시와 쉼표를 섞어 쓴 경우에도 단어가 잘못 잘리지 않게)
+      const first = m[0];
+      let idx = first.search(/[가-힣]/);
+      if (idx > 0 && first[idx-1] === "~") idx -= 1;
+      parts = idx > 0
+        ? [first.slice(0,idx).trim(), first.slice(idx).trim(), ...m.slice(1)]
+        : m;
+    }
     else {
       // 구분자가 없으면 첫 한글 글자 기준으로 앞=단어, 뒤=뜻.
       // 단, "be subject to ~의 대상이 되다"처럼 물결(~)이 뜻의 시작을 나타내는 경우가 많아
@@ -831,6 +846,16 @@ function VocabShareSheet({ vocab, onClose }) {
   );
 }
 
+// normPos가 실제로 받아들이는 표기들 — 화면 안내와 코드가 어긋나지 않게 여기서 한 번에 관리한다
+const POS_HINTS = [
+  ["명사",   "n / noun / 명사",             "#5AA9FF"],
+  ["동사",   "v / verb / 동사",             "#FF8C42"],
+  ["형용사", "adj / a / adjective / 형용사", "#5AD1A0"],
+  ["부사",   "adv / ad / adverb / 부사",    "#C9A6FF"],
+  ["전치사", "prep / preposition / 전치사",  "#FFB74B"],
+  ["접속사", "conj / conjunction / 접속사",  "#FF8FB0"],
+];
+
 function VocabBulkSheet({ apiKey, existingTerms, onAdd, onClose }) {
   const [text, setText] = useState("");
   const [type, setType] = useState("word");
@@ -838,6 +863,7 @@ function VocabBulkSheet({ apiKey, existingTerms, onAdd, onClose }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [rows, setRows] = useState(null); // 미리보기
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const preview = () => {
     const parsed = parseVocabLines(text);
@@ -914,13 +940,36 @@ ${terms.map((t,i)=>`${i+1}. ${t}`).join("\n")}
           </div>
 
           <textarea value={text} onChange={(e)=>{ setText(e.target.value); setRows(null); }}
-            rows={7} placeholder={"comprehensive 포괄적인 adj\nallocate 할당하다 v\nrevenue 수익\n\n또는 단어만 적고 AI 채우기를 눌러도 돼요"}
+            rows={7} placeholder={"comprehensive 포괄적인 adj\nallocate 할당하다 동사\nrevenue 수익 n\nprompt / adj 신속한 / v 재촉하다\naddress 주소, 다루다\nubiquitous"}
             style={{ ...inp, width:"100%", boxSizing:"border-box", marginTop:9, resize:"vertical",
               fontFamily:"inherit", lineHeight:1.6, fontSize:13 }} />
 
           <div style={{ fontSize:10.5, color:C.muted, marginTop:7, lineHeight:1.55 }}>
-            구분자는 띄어쓰기 · 슬래시(/) · 쉼표 · 탭 다 돼요. 품사는 v, adj, 형용사 처럼 끝에 붙이면 인식돼요.
+            구분자는 띄어쓰기 · 슬래시(/) · 쉼표 · 탭 다 돼요.
           </div>
+
+          {/* 품사를 뭐라고 써야 하는지 몰라서 막히는 일이 많아 표로 보여준다 */}
+          <button onClick={()=>setHelpOpen(v=>!v)}
+            style={{ background:"none", border:"none", padding:0, marginTop:8, cursor:"pointer",
+              color:STUDY_ACCENT, fontSize:11, fontWeight:800 }}>
+            품사는 뭐라고 쓰나요? {helpOpen?"▴":"▾"}
+          </button>
+          {helpOpen && (
+            <div style={{ marginTop:8, padding:"11px 12px", background:C.surface2, borderRadius:10 }}>
+              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                {POS_HINTS.map(([label, codes, color])=>(
+                  <div key={label} style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <span style={{ fontSize:11, fontWeight:800, color, width:46, flexShrink:0 }}>{label}</span>
+                    <span style={{ fontSize:11, color:C.muted }}>{codes}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize:10.5, color:C.muted, marginTop:9, lineHeight:1.6, borderTop:`1px solid ${C.line}`, paddingTop:8 }}>
+                한글로 <b style={{color:C.text}}>명사·동사·형용사</b>라고 써도 되고, 대소문자도 상관없어요.<br/>
+                한 단어에 품사가 여럿이면 <b style={{color:C.text}}>prompt / adj 신속한 / v 재촉하다</b> 처럼 적으면 둘 다 들어가요.
+              </div>
+            </div>
+          )}
 
           <input value={tag} onChange={(e)=>setTag(e.target.value)}
             placeholder="섹션·태그 (선택 · 전체에 함께 적용)" style={{...inp, width:"100%", boxSizing:"border-box", marginTop:9}} />
