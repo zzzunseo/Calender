@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { TYPES, VOCAB_TYPES, vocabTypeInfo, POS_LIST, posInfo, MASTER_LEVEL, isMastered, isOftenWrong, isDueToday, dueList, speakWord, reviewScore, STUDY_ACCENT, C, todayKey, uid, tint, num, fmtMin, last7, LineChart, Bars7, Card, Row, SheetLayer, lbl, inp, primary, ghost, stepBtn, xBtn, chip, sheet, grip, callClaudeAPI } from "../shared.jsx";
+import { TYPES, VOCAB_TYPES, vocabTypeInfo, POS_LIST, posInfo, MASTER_LEVEL, isMastered, isOftenWrong, isDueToday, dueList, speakWord, reviewScore, STUDY_ACCENT, C, todayKey, uid, tint, num, fmtMin, last7, LineChart, Bars7, Card, Row, SheetLayer, lbl, inp, primary, ghost, stepBtn, xBtn, chip, sheet, grip, callClaudeAPI, posList, hasPos, togglePos } from "../shared.jsx";
 
 const DEFAULT_SUBJECTS = ["토익", "자격증"];
 // 토익 학습 영역 — 기록·점수를 파트 단위로 쪼개서 약점을 보이게 한다
@@ -51,26 +51,41 @@ const parseVocabLines = (text) => {
     }
     const term = parts[0];
     if (!term) continue;
-    // 품사 후보를 뒤쪽 조각들에서 찾아낸다
-    let pos = "", meaningParts = [];
+    // 한 단어에 품사가 여러 개일 수 있다(예: prompt = 형용사·동사).
+    // 조각 중 품사로 읽히는 것은 모두 모으고, 나머지를 뜻으로 본다.
+    const posSet = [];
+    const addPos = (p)=>{ if (p && !posSet.includes(p)) posSet.push(p); };
+    let meaningParts = [];
     for (const seg of parts.slice(1)) {
       const p = normPos(seg);
-      if (p && !pos) { pos = p; continue; }
+      if (p) { addPos(p); continue; }
+      // "n 요금", "형용사 신속한"처럼 조각 앞에 품사가 붙은 경우도 분리한다
+      const head = seg.split(/\s+/)[0];
+      const ph = normPos(head);
+      if (ph && seg.split(/\s+/).length >= 2) {
+        addPos(ph);
+        meaningParts.push(seg.split(/\s+/).slice(1).join(" "));
+        continue;
+      }
       meaningParts.push(seg);
     }
-    // 뜻 안에 "(adj)" 같은 표기가 섞인 경우도 뽑아낸다
     let meaning = meaningParts.join(", ");
-    const inline = meaning.match(/\(([^)]+)\)/);
-    if (!pos && inline) { const p = normPos(inline[1]); if (p) { pos = p; meaning = meaning.replace(inline[0], "").trim(); } }
+    // 뜻 안에 "(adj)" 같은 괄호 표기가 섞인 경우도 뽑아낸다 (여러 개 가능)
+    meaning = meaning.replace(/\(([^)]+)\)/g, (whole, inner) => {
+      const p = normPos(inner);
+      if (p) { addPos(p); return ""; }
+      return whole;
+    });
     // 띄어쓰기로만 쓴 경우 끝에 붙은 품사를 떼어낸다 ("할당하다 v", "신속한 형용사")
-    if (!pos) {
-      const toks = meaning.split(/\s+/);
+    if (posSet.length === 0) {
+      const toks = meaning.trim().split(/\s+/);
       if (toks.length >= 2) {
         const p = normPos(toks[toks.length-1]);
-        if (p) { pos = p; meaning = toks.slice(0,-1).join(" "); }
+        if (p) { addPos(p); meaning = toks.slice(0,-1).join(" "); }
       }
     }
-    out.push({ term, meaning: meaning.replace(/^[,\s]+|[,\s]+$/g,""), pos });
+    meaning = meaning.replace(/\s{2,}/g, " ").replace(/^[,\s]+|[,\s]+$/g,"").replace(/,\s*,/g, ",");
+    out.push({ term, meaning, pos: posSet.join(",") });
   }
   return out;
 };
@@ -595,13 +610,13 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
               <div style={{ marginTop:6 }}>
                 <div style={{ fontSize:11.5, color:C.amber, fontWeight:800, marginBottom:8 }}>틀린 단어 {wrongList.length}개 — 다시 볼까요?</div>
                 {wrongList.map((v)=>{
-                  const pi = posInfo(v.pos);
+                  const pl = posList(v.pos);
                   return (
                     <div key={v.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 0", borderBottom:`1px solid ${C.line}` }}>
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
                           <span style={{ fontSize:13, fontWeight:800 }}>{v.term}</span>
-                          {pi && <span style={{ fontSize:9, fontWeight:800, color:pi.color, background:tint(pi.color,0.14), borderRadius:999, padding:"1px 6px" }}>{pi.short}</span>}
+                          {pl.map(p=>(<span key={p.k} style={{ fontSize:9, fontWeight:800, color:p.color, background:tint(p.color,0.14), borderRadius:999, padding:"1px 6px", marginRight:3 }}>{p.short}</span>))}
                         </div>
                         <div style={{ fontSize:12, color:STUDY_ACCENT, marginTop:3 }}>{v.meaning}</div>
                       </div>
@@ -628,8 +643,10 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
             <div style={{ padding:"22px 14px", borderRadius:13, background:C.surface2, textAlign:"center",
               border:`1px solid ${C.line}`, minHeight:74, display:"flex", flexDirection:"column",
               alignItems:"center", justifyContent:"center", gap:7 }}>
-              {dir==="t2m" && posInfo(cur.v.pos) && (
-                <span style={{ fontSize:10, fontWeight:800, color:posInfo(cur.v.pos).color }}>{posInfo(cur.v.pos).short}</span>
+              {dir==="t2m" && posList(cur.v.pos).length>0 && (
+                <span style={{ fontSize:10, fontWeight:800, color:posList(cur.v.pos)[0].color }}>
+                  {posList(cur.v.pos).map(p=>p.short).join(" ")}
+                </span>
               )}
               <div style={{ fontSize:20, fontWeight:800, lineHeight:1.35, wordBreak:"break-word" }}>{question(cur.v)}</div>
               {cur.v.tag && <div style={{ fontSize:10, color:C.muted }}>{cur.v.tag}</div>}
@@ -680,6 +697,49 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
 // 단어장을 다른 기기로 옮기기 위한 시트.
 // 기록은 기기 안에만 저장되므로, 붙여넣기로 다시 넣을 수 있는 형태로 내보낸다.
 // (전체 백업과 달리 단어장만 다루므로, 받는 쪽의 다른 기록은 건드리지 않는다)
+// 저장한 단어를 나중에 고치는 폼.
+// 뜻을 더 붙이거나 품사를 추가할 때 쓰며, 숙련도·별표 같은 학습 기록은 건드리지 않는다.
+function VocabEditRow({ entry, onSave, onCancel }) {
+  const [v, setV] = useState({
+    term: entry.term || "",
+    meaning: entry.meaning || "",
+    pos: entry.pos || "",
+    note: entry.note || "",
+    tag: entry.tag || "",
+  });
+  return (
+    <div style={{ marginTop:9, padding:"12px", background:C.surface2, borderRadius:11 }}>
+      <input value={v.term} onChange={(e)=>setV({...v, term:e.target.value})}
+        placeholder="단어" style={{...inp, width:"100%", boxSizing:"border-box"}} />
+      <input value={v.meaning} onChange={(e)=>setV({...v, meaning:e.target.value})}
+        placeholder="뜻 (여러 개면 쉼표로: 주소, 다루다)"
+        style={{...inp, width:"100%", boxSizing:"border-box", marginTop:6}} />
+      {entry.type!=="grammar" && (<>
+        <div style={{ fontSize:10, color:C.muted, margin:"9px 0 5px" }}>품사 (여러 개 선택 가능)</div>
+        <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+          {POS_LIST.map((pp)=>(
+            <button key={pp.k} onClick={()=>setV({...v, pos: togglePos(v.pos, pp.k)})}
+              style={{...chip(hasPos(v.pos, pp.k), pp.color), padding:"5px 10px", fontSize:11}}>{pp.label}</button>
+          ))}
+        </div>
+      </>)}
+      <input value={v.note} onChange={(e)=>setV({...v, note:e.target.value})}
+        placeholder="예문·메모 (선택)" style={{...inp, width:"100%", boxSizing:"border-box", marginTop:8}} />
+      <input value={v.tag} onChange={(e)=>setV({...v, tag:e.target.value})}
+        placeholder="섹션·태그 (선택)" style={{...inp, width:"100%", boxSizing:"border-box", marginTop:6}} />
+      <div style={{ display:"flex", gap:7, marginTop:10 }}>
+        <button onClick={onCancel} style={{...ghost, flex:1}}>취소</button>
+        <button onClick={()=>onSave({
+            term: v.term.trim() || entry.term,
+            meaning: v.meaning.trim(), pos: v.pos,
+            note: v.note.trim(), tag: v.tag.trim(),
+          })}
+          style={{...primary(STUDY_ACCENT), flex:2}}>저장</button>
+      </div>
+    </div>
+  );
+}
+
 function VocabShareSheet({ vocab, onClose }) {
   const [scope, setScope] = useState("all");   // all | weak | star
   const taRef = useRef(null);
@@ -815,7 +875,8 @@ ${terms.map((t,i)=>`${i+1}. ${t}`).join("\n")}
         return {
           term: r.term,
           meaning: r.meaning || String(hit.meaning||"").trim(),
-          pos: r.pos || normPos(hit.pos),
+          // AI가 "adj,v"처럼 여러 품사를 줄 수도 있으므로 각각 정규화해 합친다
+          pos: r.pos || String(hit.pos||"").split(/[,/]/).map(x=>normPos(x)).filter(Boolean).join(","),
           note: String(hit.example||"").trim(),
         };
       }));
@@ -882,14 +943,14 @@ ${terms.map((t,i)=>`${i+1}. ${t}`).join("\n")}
                 {rows.length}개 인식됨{dupCount>0?` · 이미 있는 단어 ${dupCount}개`:""}
               </div>
               {rows.slice(0,25).map((r,i)=>{
-                const pi = posInfo(r.pos);
+                const pl = posList(r.pos);
                 const dup = existingTerms.has(r.term.trim().toLowerCase());
                 return (
                   <div key={i} style={{ display:"flex", alignItems:"center", gap:7, padding:"7px 0", borderBottom:`1px solid ${C.line}` }}>
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ display:"flex", alignItems:"center", gap:5, flexWrap:"wrap" }}>
                         <span style={{ fontSize:12.5, fontWeight:800 }}>{r.term}</span>
-                        {pi && <span style={{ fontSize:9, fontWeight:800, color:pi.color, background:tint(pi.color,0.14), borderRadius:999, padding:"1px 6px" }}>{pi.short}</span>}
+                        {pl.map(p=>(<span key={p.k} style={{ fontSize:9, fontWeight:800, color:p.color, background:tint(p.color,0.14), borderRadius:999, padding:"1px 6px", marginRight:3 }}>{p.short}</span>))}
                         {dup && <span style={{ fontSize:9, color:C.amber, fontWeight:700 }}>중복</span>}
                       </div>
                       <div style={{ fontSize:11, color: r.meaning?C.muted:C.danger, marginTop:2 }}>
@@ -931,6 +992,7 @@ function StudyVocab({ data, mutate, apiKey }) {
   const [filterMode, setFilterMode] = useState("all"); // all | star | weak | wrong
   const [bulkOpen, setBulkOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [editId, setEditId] = useState(null);
   const [quizOpen, setQuizOpen] = useState(false);
 
   const save = (list, undoLabel)=> mutate((prev)=>({ ...prev, vocab:list }), undoLabel);
@@ -960,6 +1022,8 @@ function StudyVocab({ data, mutate, apiKey }) {
         wrong: d<0 ? num(v.wrong)+1 : num(v.wrong), lastReview:todayKey() }
     : v));
   const toggleStar = (id) => save(vocab.map(v=> v.id===id ? { ...v, starred: !v.starred } : v));
+  // 저장한 단어의 뜻·품사·메모를 나중에 고칠 수 있게 한다 (학습 기록은 그대로 유지)
+  const saveEdit = (id, patch) => save(vocab.map(v=> v.id===id ? { ...v, ...patch } : v));
 
   const byTab = tab==="all" ? vocab : vocab.filter(v=>v.type===tab);
   const searched = q.trim()
@@ -1075,7 +1139,7 @@ function StudyVocab({ data, mutate, apiKey }) {
               flexDirection:"column", alignItems:"center", justifyContent:"center", gap:9 }}>
             <div style={{ fontSize:10.5, color:vocabTypeInfo(cur.type).color, fontWeight:800 }}>
               {vocabTypeInfo(cur.type).icon} {vocabTypeInfo(cur.type).label}
-              {posInfo(cur.pos)?` · ${posInfo(cur.pos).short}`:""}{cur.tag?` · ${cur.tag}`:""}
+              {posList(cur.pos).length?` · ${posList(cur.pos).map(p=>p.short).join(" ")}`:""}{cur.tag?` · ${cur.tag}`:""}
             </div>
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               <span style={{ fontSize:20, fontWeight:800, lineHeight:1.35, wordBreak:"break-word" }}>{cur.term}</span>
@@ -1171,8 +1235,8 @@ function StudyVocab({ data, mutate, apiKey }) {
             {draft.type!=="grammar" && (
               <div style={{ display:"flex", gap:4, marginTop:7, flexWrap:"wrap" }}>
                 {POS_LIST.map((pp)=>(
-                  <button key={pp.k} onClick={()=>setDraft({...draft, pos: draft.pos===pp.k?"":pp.k})}
-                    style={{...chip(draft.pos===pp.k, pp.color), padding:"5px 10px", fontSize:11}}>{pp.label}</button>
+                  <button key={pp.k} onClick={()=>setDraft({...draft, pos: togglePos(draft.pos, pp.k)})}
+                    style={{...chip(hasPos(draft.pos, pp.k), pp.color), padding:"5px 10px", fontSize:11}}>{pp.label}</button>
                 ))}
               </div>
             )}
@@ -1219,8 +1283,10 @@ function StudyVocab({ data, mutate, apiKey }) {
                       <span style={{ fontSize:13.5, fontWeight:800, wordBreak:"break-word" }}>{v.term}</span>
                       <span style={{ fontSize:9.5, fontWeight:800, color:ti.color, background:tint(ti.color,0.14),
                         borderRadius:999, padding:"1px 7px" }}>{ti.label}</span>
-                      {posInfo(v.pos) && <span style={{ fontSize:9.5, fontWeight:800, color:posInfo(v.pos).color,
-                        background:tint(posInfo(v.pos).color,0.14), borderRadius:999, padding:"1px 7px" }}>{posInfo(v.pos).short}</span>}
+                      {posList(v.pos).map(pi=>(
+                        <span key={pi.k} style={{ fontSize:9.5, fontWeight:800, color:pi.color,
+                          background:tint(pi.color,0.14), borderRadius:999, padding:"1px 7px" }}>{pi.short}</span>
+                      ))}
                       {isMastered(v) && <span style={{ fontSize:9.5, fontWeight:800, color:TYPES.legs.color }}>✓ 외움</span>}
                       {isDueToday(v) && <span style={{ fontSize:9, fontWeight:800, color:STUDY_ACCENT,
                         background:tint(STUDY_ACCENT,0.14), borderRadius:999, padding:"1px 6px" }}>오늘</span>}
@@ -1249,11 +1315,18 @@ function StudyVocab({ data, mutate, apiKey }) {
                         opacity: v.starred?1:0.3, lineHeight:1, transition:"opacity .15s" }}>
                       {v.starred ? "⭐" : "☆"}
                     </button>
+                    <button onClick={()=>setEditId(editId===v.id?null:v.id)} title="수정"
+                      style={{ background:"none", border:"none", cursor:"pointer", fontSize:13, padding:"0 2px",
+                        opacity:0.7 }}>✏️</button>
                     <button onClick={()=>bump(v.id, 1)} title="외웠어요"
                       style={{ background:"none", border:`1px solid ${tint(TYPES.legs.color,0.4)}`, color:TYPES.legs.color,
                         borderRadius:7, padding:"4px 7px", cursor:"pointer", fontSize:11 }}>✓</button>
                     <button onClick={()=>remove(v.id)} style={xBtn}>×</button>
                   </div>
+                  {editId===v.id && (
+                    <VocabEditRow entry={v} onSave={(patch)=>{ saveEdit(v.id, patch); setEditId(null); }}
+                      onCancel={()=>setEditId(null)} />
+                  )}
                 </div>
               );
             })}

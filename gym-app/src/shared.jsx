@@ -65,6 +65,19 @@ export const POS_LIST = [
 ];
 
 export const posInfo = (k)=> POS_LIST.find(p=>p.k===k) || null;
+// 한 단어가 여러 품사를 가질 수 있다(예: prompt = 형용사·동사).
+// pos는 "adj,v"처럼 쉼표로 이어 저장하고, 읽을 때 이 함수로 풀어 쓴다.
+// 기존에 하나만 저장된 데이터도 그대로 동작한다.
+export const posList = (pos)=> String(pos||"")
+  .split(",").map(x=>x.trim()).filter(Boolean)
+  .map(k=>posInfo(k)).filter(Boolean);
+export const hasPos = (pos, k)=> String(pos||"").split(",").map(x=>x.trim()).includes(k);
+export const togglePos = (pos, k)=> {
+  const cur = String(pos||"").split(",").map(x=>x.trim()).filter(Boolean);
+  const next = cur.includes(k) ? cur.filter(x=>x!==k) : [...cur, k];
+  // POS_LIST 순서대로 정렬해 표시가 늘 일정하게
+  return POS_LIST.filter(p=>next.includes(p.k)).map(p=>p.k).join(",");
+};
 // 여러 표기를 내부 코드로 정규화 (adj / a / 형용사 → adj)
 
 export const MASTER_LEVEL = 4;   // 이 이상이면 외운 것으로 본다

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { TYPES, partBreakdown, CARDIO, WEEKDAYS, vocabTypeInfo, posInfo, REVIEW_GAP, dueList, speakWord, STUDY_ACCENT, SLEEP_ACCENT, MOODS, C, keyOf, todayKey, uid, extraWater, tint, num, show1, fmtMin, last7, lastNDays, didWorkout, emptyDay, stepsToKcal, burnedKcal, MACRO_GOALS, rd1, macroTargets, planDate, QuickWorkoutBlock, CONDITION_LABELS, SleepBlock, FoodSection, LineChart, Bars7, Card, GlassCard, useCountUp, Row, MiniCard, Collapsible, ConfirmX, lbl, inp, primary, ghost, stepBtn, chip, cardioInfo } from "../shared.jsx";
+import { TYPES, partBreakdown, CARDIO, WEEKDAYS, vocabTypeInfo, posInfo, REVIEW_GAP, dueList, speakWord, STUDY_ACCENT, SLEEP_ACCENT, MOODS, C, keyOf, todayKey, uid, extraWater, tint, num, show1, fmtMin, last7, lastNDays, didWorkout, emptyDay, stepsToKcal, burnedKcal, MACRO_GOALS, rd1, macroTargets, planDate, QuickWorkoutBlock, CONDITION_LABELS, SleepBlock, FoodSection, LineChart, Bars7, Card, GlassCard, useCountUp, Row, MiniCard, Collapsible, ConfirmX, lbl, inp, primary, ghost, stepBtn, chip, cardioInfo, posList } from "../shared.jsx";
 
 export default function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps, apiKey, customFoods, mutate }) {
   const k = todayKey();
@@ -962,7 +962,7 @@ function VocabTodayCard({ vocab, goal, mutate }) {
               flexDirection:"column", alignItems:"center", justifyContent:"center", gap:8 }}>
             <div style={{ fontSize:10, fontWeight:800, color:vocabTypeInfo(cur.type).color }}>
               {vocabTypeInfo(cur.type).icon} {vocabTypeInfo(cur.type).label}
-              {posInfo(cur.pos)?` · ${posInfo(cur.pos).short}`:""}
+              {posList(cur.pos).length?` · ${posList(cur.pos).map(p=>p.short).join(" ")}`:""}
             </div>
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               <span style={{ fontSize:21, fontWeight:800, lineHeight:1.3, wordBreak:"break-word" }}>{cur.term}</span>
