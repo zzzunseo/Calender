@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { TYPES, VOCAB_TYPES, vocabTypeInfo, POS_LIST, posInfo, MASTER_LEVEL, isMastered, isOftenWrong, isDueToday, dueList, speakWord, reviewScore, STUDY_ACCENT, C, todayKey, uid, tint, num, fmtMin, last7, LineChart, Bars7, Card, Row, SheetLayer, lbl, inp, primary, ghost, stepBtn, xBtn, chip, sheet, grip, callClaudeAPI, posList, hasPos, togglePos } from "../shared.jsx";
+import { TYPES, VOCAB_TYPES, vocabTypeInfo, POS_LIST, posInfo, MASTER_LEVEL, isMastered, isOftenWrong, isDueToday, dueList, speakWord, reviewScore, STUDY_ACCENT, C, todayKey, uid, tint, num, fmtMin, last7, LineChart, Bars7, Card, Row, SheetLayer, lbl, inp, primary, ghost, stepBtn, xBtn, chip, sheet, grip, callClaudeAPI, posList, hasPos, togglePos, keyOf } from "../shared.jsx";
 
 const DEFAULT_SUBJECTS = ["토익", "자격증"];
 // 토익 학습 영역 — 기록·점수를 파트 단위로 쪼개서 약점을 보이게 한다
@@ -546,6 +546,13 @@ function StudyLog({ data, persist, mutate, days }) {
 
 // 단어 퀴즈 — 4지선다. 틀리면 숙련도가 내려가서 복습 대기열로 돌아온다
 
+// 한 단어에 뜻이 여러 개인지 판정.
+// 뜻은 "주소, 다루다" 또는 "n. 명령, v. 명령하다"처럼 쉼표로 이어 저장되므로 조각 수를 센다.
+// 품사가 둘 이상 붙은 경우도 다의어로 본다(mandate = 명사·동사).
+const meaningCount = (v) => String(v?.meaning||"")
+  .split(",").map(x=>x.trim()).filter(Boolean).length;
+const isPolysemous = (v) => meaningCount(v) >= 2 || posList(v?.pos).length >= 2;
+
 // ===== 빈칸 채우기 =====
 // 예문에서 그 단어를 찾아 ____ 로 가린다. 토익 Part 5와 같은 형식이라 실전에 가깝다.
 // 영어는 어형이 변하므로(allocate → allocated/allocating) 어간을 기준으로 찾는다.
@@ -590,12 +597,14 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
   const [starredMap, setStarred] = useState({}); // 결과 화면에서 누른 별표를 즉시 반영
 
   // 빈칸 모드는 예문에서 그 단어를 찾을 수 있어야 문제를 만들 수 있다
-  const pool = dir==="cloze"
-    ? vocab.filter(clozeReady)
+  const pool = dir==="cloze" ? vocab.filter(clozeReady)
+    // 품사 맞히기는 품사가 하나만 입력된 단어로 낸다(둘 이상이면 정답이 여러 개가 되어 애매해짐)
+    : dir==="pos" ? vocab.filter(v=>v.term && posList(v.pos).length===1)
     : vocab.filter(v=>v.term && v.meaning);
   const scoped = scope==="weak" ? pool.filter(v=>!isMastered(v))
     : scope==="star" ? pool.filter(v=>v.starred)
-    : scope==="wrong" ? pool.filter(isOftenWrong) : pool;
+    : scope==="wrong" ? pool.filter(isOftenWrong)
+    : scope==="poly" ? pool.filter(isPolysemous) : pool;
   const enough = pool.length >= 4;
 
   const build = () => {
@@ -606,10 +615,18 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
     // 오답 보기는 전체 단어에서 뽑는다 (빈칸 모드에서 예문 있는 단어가 적어도 보기가 채워지도록)
     const distractPool = vocab.filter(x=>x.term);
     const made = picks.map((v)=>{
+      if (dir==="pos") {
+        // 보기는 품사 목록에서 뽑는다. 정답 품사 + 다른 품사 3개
+        const answer = posList(v.pos)[0];
+        const wrong = POS_LIST.filter(p=>p.k!==answer.k).sort(()=>Math.random()-0.5).slice(0,3);
+        const opts = [answer, ...wrong].sort(()=>Math.random()-0.5)
+          .map(p=>({ id:`pos-${p.k}`, posKey:p.k, label:p.label, color:p.color }));
+        return { v, opts, answerId:`pos-${answer.k}`, cloze:null };
+      }
       const others = distractPool.filter(o=>o.id!==v.id)
         .sort(()=>Math.random()-0.5).slice(0,3);
       const opts = [v, ...others].sort(()=>Math.random()-0.5);
-      return { v, opts, cloze: dir==="cloze" ? makeCloze(v.note, v.term) : null };
+      return { v, opts, answerId: v.id, cloze: dir==="cloze" ? makeCloze(v.note, v.term) : null };
     });
     setQs(made); setQi(0); setPicked(null); setCorrect(0); setWrongList([]); setStarted(true);
   };
@@ -619,13 +636,14 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
   const hidePos = (text)=> String(text||"")
     .replace(/(^|,\s*)(n|v|adj|adv|prep|conj)\.\s*/g, "$1")
     .trim();
-  const label = (v)=> dir==="t2m" ? hidePos(v.meaning) : v.term;   // 빈칸·뜻→단어는 단어를 보기로
+  // 보기에 뭘 적을지: 품사 모드는 품사 이름, 단어→뜻은 뜻, 나머지는 단어
+  const label = (o)=> dir==="pos" ? o.label : (dir==="t2m" ? hidePos(o.meaning) : o.term);
   const question = (v)=> dir==="t2m" ? v.term : hidePos(v.meaning);
 
   const choose = (opt) => {
     if (picked) return;
     setPicked(opt);
-    const ok = opt.id === cur.v.id;
+    const ok = opt.id === (cur.answerId ?? cur.v.id);
     if (ok) setCorrect(c=>c+1); else setWrongList(w=>[...w, cur.v]);
     onAnswer(cur.v.id, ok ? 1 : -1);
   };
@@ -651,10 +669,12 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
             </div>
           ) : !started ? (<>
             <div style={{ fontSize:11, color:C.muted, fontWeight:700, marginBottom:7 }}>문제 방향</div>
-            <div style={{ display:"flex", gap:6 }}>
-              {[["t2m","단어 → 뜻"],["m2t","뜻 → 단어"],["cloze","빈칸 채우기"]].map(([k,l])=>{
-                const n = k==="cloze" ? vocab.filter(clozeReady).length : vocab.filter(v=>v.term&&v.meaning).length;
-                const off = k==="cloze" && n < 1;
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
+              {[["t2m","단어 → 뜻"],["m2t","뜻 → 단어"],["cloze","빈칸 채우기"],["pos","품사 맞히기"]].map(([k,l])=>{
+                const n = k==="cloze" ? vocab.filter(clozeReady).length
+                  : k==="pos" ? vocab.filter(v=>v.term && posList(v.pos).length===1).length
+                  : vocab.filter(v=>v.term&&v.meaning).length;
+                const off = (k==="cloze" || k==="pos") && n < 1;
                 return (
                   <button key={k} onClick={()=>!off && setDir(k)} disabled={off}
                     style={{...chip(dir===k, STUDY_ACCENT), flex:1, textAlign:"center", padding:"9px 0",
@@ -662,6 +682,13 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
                 );
               })}
             </div>
+            {dir==="pos" && (
+              <div style={{ fontSize:10.5, color:C.muted, marginTop:6, lineHeight:1.55 }}>
+                품사가 <b style={{color:C.text}}>하나만</b> 입력된 단어로 문제를 만들어요
+                ({vocab.filter(v=>v.term && posList(v.pos).length===1).length}개).
+                품사가 둘 이상이면 정답이 여러 개라 제외돼요.
+              </div>
+            )}
             {dir==="cloze" && (
               <div style={{ fontSize:10.5, color:C.muted, marginTop:6, lineHeight:1.55 }}>
                 예문이 있는 단어로 문제를 만들어요 ({vocab.filter(clozeReady).length}개).
@@ -673,10 +700,13 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
               {[["weak","아직 못 외운 것", pool.filter(v=>!isMastered(v)).length, C.amber],
                 ["star","⭐ 별표", pool.filter(v=>v.starred).length, "#FFD24B"],
                 ["wrong","자주 틀림", pool.filter(isOftenWrong).length, C.danger],
+                ["poly","🔀 여러 뜻", pool.filter(isPolysemous).length, "#C9A6FF"],
                 ["all","전체", pool.length, STUDY_ACCENT]].map(([k,l,n,col])=>(
                 <button key={k} onClick={()=>setScope(k)} disabled={n===0 && k!=="all"}
                   style={{...chip(scope===k, col), textAlign:"center", padding:"9px 0", fontSize:11.5,
-                    opacity:(n===0&&k!=="all")?0.35:1}}>{l} {n}</button>
+                    opacity:(n===0&&k!=="all")?0.35:1,
+                    // 5개라 2열 격자에서 마지막 하나가 혼자 남으므로 "전체"는 한 줄을 다 쓰게 한다
+                    ...(k==="all" ? { gridColumn:"1 / -1" } : {})}}>{l} {n}</button>
               ))}
             </div>
             {scoped.length>0 && scoped.length<4 && (
@@ -734,7 +764,15 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
             <div style={{ padding:"22px 14px", borderRadius:13, background:C.surface2, textAlign:"center",
               border:`1px solid ${C.line}`, minHeight:74, display:"flex", flexDirection:"column",
               alignItems:"center", justifyContent:"center", gap:7 }}>
-              {dir==="cloze" ? (
+              {dir==="pos" ? (
+                <>
+                  <div style={{ fontSize:21, fontWeight:800, lineHeight:1.3, wordBreak:"break-word" }}>{cur.v.term}</div>
+                  {cur.v.meaning && (
+                    <div style={{ fontSize:12.5, color:C.muted, marginTop:2 }}>{hidePos(cur.v.meaning)}</div>
+                  )}
+                  <div style={{ fontSize:10.5, color:STUDY_ACCENT, fontWeight:700, marginTop:4 }}>이 단어의 품사는?</div>
+                </>
+              ) : dir==="cloze" ? (
                 <div style={{ fontSize:16, fontWeight:700, lineHeight:1.6, wordBreak:"break-word", textAlign:"left" }}>
                   {cur.cloze}
                 </div>
@@ -746,7 +784,7 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
 
             <div style={{ display:"flex", flexDirection:"column", gap:7, marginTop:12 }}>
               {cur.opts.map((o)=>{
-                const isAns = o.id===cur.v.id;
+                const isAns = o.id===(cur.answerId ?? cur.v.id);
                 const isPicked = picked && picked.id===o.id;
                 const show = !!picked;
                 const bg = show && isAns ? tint(TYPES.legs.color,0.16)
@@ -1127,15 +1165,22 @@ function StudyVocab({ data, mutate, apiKey }) {
   const [reviewOn, setReviewOn] = useState(false);
   const [draft, setDraft] = useState({ type:"word", term:"", meaning:"", note:"", tag:"", pos:"" });
   const [filterMode, setFilterMode] = useState("all"); // all | star | weak | wrong
+  const [tagFilter, setTagFilter] = useState("");      // 교재 섹션(태그)으로 좁혀 보기
   const [bulkOpen, setBulkOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [editId, setEditId] = useState(null);
+  const [dupMsg, setDupMsg] = useState("");
   const [quizOpen, setQuizOpen] = useState(false);
 
   const save = (list, undoLabel)=> mutate((prev)=>({ ...prev, vocab:list }), undoLabel);
   const add = () => {
-    if (!draft.term.trim()) return;
-    save([...vocab, { id:uid(), type:draft.type, term:draft.term.trim(), meaning:draft.meaning.trim(),
+    const t = draft.term.trim();
+    if (!t) return;
+    // 이미 있는 단어면 넣지 않고 알려준다 (조용히 무시하면 왜 안 들어갔는지 알 수 없다)
+    const dup = vocab.find(v=>String(v.term).trim().toLowerCase()===t.toLowerCase());
+    if (dup) { setDupMsg(`"${dup.term}" 은 이미 있어요`); setTimeout(()=>setDupMsg(""), 2500); return; }
+    setDupMsg("");
+    save([...vocab, { id:uid(), type:draft.type, term:t, meaning:draft.meaning.trim(),
       note:draft.note.trim(), tag:draft.tag.trim(), pos:draft.pos, level:0, reviewCount:0, wrong:0, starred:false, lastReview:null, created:todayKey() }]);
     setDraft({ type:draft.type, term:"", meaning:"", note:"", tag:draft.tag, pos:"" });
   };
@@ -1169,11 +1214,14 @@ function StudyVocab({ data, mutate, apiKey }) {
   const applyFilter = (list) =>
     filterMode==="star"  ? list.filter(v=>v.starred) :
     filterMode==="weak"  ? list.filter(v=>!isMastered(v)) :
-    filterMode==="wrong" ? list.filter(isOftenWrong) : list;
-  const listed = applyFilter(searched).slice()
+    filterMode==="wrong" ? list.filter(isOftenWrong) :
+    filterMode==="poly"  ? list.filter(isPolysemous) : list;
+  const applyTag = (list)=> tagFilter ? list.filter(v=>String(v.tag||"").trim()===tagFilter) : list;
+  const listed = applyTag(applyFilter(searched)).slice()
     .sort((a,b)=> (b.starred?1:0)-(a.starred?1:0) || reviewScore(b)-reviewScore(a));
   const starCount = vocab.filter(v=>v.starred).length;
   const wrongCount = vocab.filter(isOftenWrong).length;
+  const polyCount = vocab.filter(isPolysemous).length;
 
   const mastered = vocab.filter(isMastered).length;
   const todayReviewed = vocab.filter(v=>v.lastReview===todayKey()).length;
@@ -1191,6 +1239,32 @@ function StudyVocab({ data, mutate, apiKey }) {
   const doneToday = vocab.filter(v=>v.lastReview===todayKey()).length;
   const queue = dueList(vocab, Math.max(1, goal - doneToday));
   const dueAll = dueList(vocab, 0).length;
+
+  // ===== 동기부여 지표 (전부 기록에서 계산) =====
+  // 복습한 날짜 집합으로 오늘부터 거꾸로 연속일수를 센다
+  const reviewDays = new Set(vocab.map(v=>v.lastReview).filter(Boolean));
+  const reviewStreak = (()=>{
+    let n = 0;
+    for (let i=0; i<400; i++) {
+      const d = new Date(); d.setDate(d.getDate()-i);
+      const kk = keyOf(d.getFullYear(), d.getMonth(), d.getDate());
+      if (reviewDays.has(kk)) n++;
+      else if (i>0) break;      // 오늘 아직 안 했어도 어제까지의 연속은 인정
+    }
+    return n;
+  })();
+  // 이번 주 / 지난주에 복습한 단어 수 (주는 일요일 시작)
+  const weekKeys = (offset)=>{
+    const t = new Date(); t.setHours(0,0,0,0);
+    const sun = new Date(t); sun.setDate(t.getDate() - t.getDay() - offset*7);
+    return [...Array(7)].map((_,i)=>{ const d=new Date(sun); d.setDate(sun.getDate()+i);
+      return keyOf(d.getFullYear(), d.getMonth(), d.getDate()); });
+  };
+  const thisWeekSet = new Set(weekKeys(0));
+  const lastWeekSet = new Set(weekKeys(1));
+  const thisWeekCnt = vocab.filter(v=>v.lastReview && thisWeekSet.has(v.lastReview)).length;
+  const lastWeekCnt = vocab.filter(v=>v.lastReview && lastWeekSet.has(v.lastReview)).length;
+  const weekDiff = thisWeekCnt - lastWeekCnt;
   const [qi, setQi] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const cur = queue[qi] || null;
@@ -1236,6 +1310,32 @@ function StudyVocab({ data, mutate, apiKey }) {
           <div style={{ fontSize:10.5, color:C.muted, marginTop:5, lineHeight:1.5 }}>
             숙련도가 오를수록 복습 간격이 늘어나요 (1→2→4→7→14→30일)
           </div>
+
+          {/* 동기부여 — 꾸준함과 지난주 대비 성과를 보여준다 */}
+          {(reviewStreak>=2 || thisWeekCnt>0) && (
+            <div style={{ display:"flex", gap:6, marginTop:11 }}>
+              {reviewStreak>=2 && (
+                <div style={{ flex:1, background:tint("#FF8C42",0.12), border:`1px solid ${tint("#FF8C42",0.4)}`,
+                  borderRadius:10, padding:"9px 8px", textAlign:"center" }}>
+                  <div style={{ fontSize:15, fontWeight:800, color:"#FF8C42" }}>🔥 {reviewStreak}일</div>
+                  <div style={{ fontSize:9.5, color:C.muted, marginTop:1 }}>연속 복습</div>
+                </div>
+              )}
+              <div style={{ flex:1, background:C.surface2, borderRadius:10, padding:"9px 8px", textAlign:"center" }}>
+                <div style={{ fontSize:15, fontWeight:800, color:STUDY_ACCENT }}>{thisWeekCnt}개</div>
+                <div style={{ fontSize:9.5, color:C.muted, marginTop:1 }}>이번 주 복습</div>
+              </div>
+              {lastWeekCnt>0 && (
+                <div style={{ flex:1, background:C.surface2, borderRadius:10, padding:"9px 8px", textAlign:"center" }}>
+                  <div style={{ fontSize:15, fontWeight:800,
+                    color: weekDiff>0?TYPES.legs.color : weekDiff<0?C.danger:C.muted }}>
+                    {weekDiff>0?"+":""}{weekDiff}
+                  </div>
+                  <div style={{ fontSize:9.5, color:C.muted, marginTop:1 }}>지난주 대비</div>
+                </div>
+              )}
+            </div>
+          )}
           {(starCount>0 || wrongCount>0) && (
             <div style={{ display:"flex", gap:6, marginTop:10 }}>
               {starCount>0 && (
@@ -1318,7 +1418,7 @@ function StudyVocab({ data, mutate, apiKey }) {
             {tagStats.map((t)=>{
               const p = t.total ? Math.round((t.total-t.weak)/t.total*100) : 0;
               return (
-                <div key={t.tag} onClick={()=>{ setQ(t.tag); setTab("all"); }}
+                <div key={t.tag} onClick={()=>{ setTagFilter(t.tag===tagFilter?"":t.tag); setTab("all"); setQ(""); }}
                   style={{ display:"flex", alignItems:"center", gap:9, cursor:"pointer" }}>
                   <span style={{ fontSize:11.5, fontWeight:700, width:96, flexShrink:0, overflow:"hidden",
                     textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{t.tag}</span>
@@ -1383,6 +1483,9 @@ function StudyVocab({ data, mutate, apiKey }) {
               placeholder="섹션·태그 (선택 · 예: Section 10 도치)" style={{...inp, width:"100%", boxSizing:"border-box", marginTop:6}} />
             <button onClick={add} disabled={!draft.term.trim()}
               style={{...primary(STUDY_ACCENT), width:"100%", marginTop:9, opacity:draft.term.trim()?1:0.45}}>추가</button>
+            {dupMsg && (
+              <div style={{ fontSize:11.5, color:C.amber, fontWeight:700, marginTop:7 }}>{dupMsg}</div>
+            )}
           </div>
         )}
 
@@ -1399,13 +1502,25 @@ function StudyVocab({ data, mutate, apiKey }) {
             {[["all","전체",STUDY_ACCENT,vocab.length],
               ["star","⭐ 별표","#FFD24B",starCount],
               ["wrong","자주 틀림",C.danger,wrongCount],
-              ["weak","미숙련",C.amber,vocab.filter(v=>!isMastered(v)).length]].map(([k,label,col,n])=>(
+              ["weak","미숙련",C.amber,vocab.filter(v=>!isMastered(v)).length],
+              ["poly","🔀 여러 뜻","#C9A6FF",polyCount]].map(([k,label,col,n])=>(
               <button key={k} onClick={()=>setFilterMode(k)}
                 style={{...chip(filterMode===k, col), padding:"5px 11px", fontSize:11.5, whiteSpace:"nowrap", flexShrink:0}}>
                 {label}{n>0?` ${n}`:""}
               </button>
             ))}
           </div>
+          {/* 섹션(태그)으로 좁혀 본 상태를 눈에 보이게 — 왜 목록이 짧은지 알 수 있게 */}
+          {tagFilter && (
+            <div style={{ display:"flex", alignItems:"center", gap:7, marginTop:8, padding:"8px 11px",
+              background:tint(STUDY_ACCENT,0.1), border:`1px solid ${tint(STUDY_ACCENT,0.35)}`, borderRadius:10 }}>
+              <span style={{ fontSize:11, color:C.muted, fontWeight:700, flexShrink:0 }}>섹션</span>
+              <span style={{ flex:1, minWidth:0, fontSize:11.5, fontWeight:800, color:STUDY_ACCENT,
+                overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{tagFilter}</span>
+              <button onClick={()=>setTagFilter("")} style={{ background:"none", border:"none",
+                color:C.muted, fontSize:11, fontWeight:700, cursor:"pointer", padding:"0 2px", flexShrink:0 }}>해제</button>
+            </div>
+          )}
 
           <div style={{ marginTop:11 }}>
             {listed.length===0 ? (
@@ -1430,6 +1545,12 @@ function StudyVocab({ data, mutate, apiKey }) {
                       {v.type!=="grammar" && (
                         <button onClick={(e)=>{ e.stopPropagation(); speakWord(v.term); }} title="발음"
                           style={{ background:"none", border:"none", cursor:"pointer", fontSize:12, padding:0, opacity:0.55 }}>🔊</button>
+                      )}
+                      {isPolysemous(v) && (
+                        <span style={{ fontSize:9, fontWeight:800, color:"#C9A6FF",
+                          background:tint("#C9A6FF",0.14), borderRadius:999, padding:"1px 6px" }}>
+                          뜻 {Math.max(meaningCount(v), posList(v.pos).length)}개
+                        </span>
                       )}
                       {isOftenWrong(v) && <span style={{ fontSize:9, fontWeight:800, color:C.danger,
                         background:tint(C.danger,0.13), borderRadius:999, padding:"1px 6px" }}>{num(v.wrong)}번 틀림</span>}
