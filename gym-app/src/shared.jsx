@@ -471,7 +471,21 @@ export function SaveBadge({ status, onRetry }) {
 
 // ================= 오늘 (대시보드) =================
 
-export function QuickWorkoutBlock({ partSets, mainLift, onChangePartSets, onChangeMainLift }) {
+// 지금까지 기록한 대표운동 이름 목록 (최근에 한 순서로).
+// 같은 운동을 매번 다르게 적어 종목이 흩어지는 걸 막기 위해 입력할 때 제안한다.
+export const pastLifts = (schedule) => {
+  const map = new Map();   // 이름 → { name, date, w, r }
+  for (const kk of Object.keys(schedule||{})) {
+    const ml = schedule[kk]?.mainLift;
+    if (!ml || !String(ml.name||"").trim()) continue;
+    const name = String(ml.name).trim();
+    const cur = map.get(name);
+    if (!cur || kk > cur.date) map.set(name, { name, date:kk, w:ml.w, r:ml.r });
+  }
+  return [...map.values()].sort((a,b)=> b.date.localeCompare(a.date));
+};
+
+export function QuickWorkoutBlock({ partSets, mainLift, onChangePartSets, onChangeMainLift, schedule }) {
   const ps = partSets || {};
   const ml = mainLift || { name:"", w:"", r:"" };
   const [editSet, setEditSet] = useState({}); // 직접입력 중인 임시 문자열
@@ -525,6 +539,31 @@ export function QuickWorkoutBlock({ partSets, mainLift, onChangePartSets, onChan
         <input value={ml.w} onChange={(e)=>setMl({w:e.target.value})} placeholder="kg" inputMode="decimal" style={{...inp, flex:1, minWidth:0}} />
         <input value={ml.r} onChange={(e)=>setMl({r:e.target.value})} placeholder="회" inputMode="numeric" style={{...inp, flex:1, minWidth:0}} />
       </div>
+
+      {/* 예전에 쓴 종목 제안 — 눌러서 넣으면 이름이 흔들리지 않아 기록이 한 종목으로 모인다.
+          지난번 무게·횟수도 같이 채워 넣기를 줄인다. */}
+      {(()=>{
+        const typed = String(ml.name||"").trim().toLowerCase();
+        const all = pastLifts(schedule);
+        const list = (typed
+          ? all.filter(x=> x.name.toLowerCase().includes(typed) && x.name.toLowerCase()!==typed)
+          : all).slice(0, 6);
+        if (list.length===0) return null;
+        return (
+          <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginTop:7 }}>
+            {list.map((x)=>(
+              <button key={x.name}
+                onClick={()=>onChangeMainLift({ name:x.name, w:x.w||"", r:x.r||"" })}
+                style={{ background:C.surface2, border:`1px solid ${C.line}`, borderRadius:999,
+                  padding:"6px 11px", cursor:"pointer", color:C.text, fontSize:11.5, fontWeight:700,
+                  display:"flex", alignItems:"center", gap:5 }}>
+                {x.name}
+                {num(x.w)>0 && <span style={{ fontSize:10, color:C.muted, fontWeight:600 }}>{num(x.w)}kg</span>}
+              </button>
+            ))}
+          </div>
+        );
+      })()}
     </div>
   );
 }

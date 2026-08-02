@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { TYPES, PARTS, CARDIO, isMastered, isOftenWrong, STUDY_ACCENT, SLEEP_ACCENT, MOODS, C, keyOf, todayKey, tint, num, fmtMin, lastNDays, didWorkout, burnedKcal, rd1, macroTargets, LineChart, Card, GlassCard, useCountUp, Row, lbl, chip, cardioInfo } from "../shared.jsx";
+import { TYPES, PARTS, CARDIO, isMastered, isOftenWrong, STUDY_ACCENT, SLEEP_ACCENT, MOODS, C, keyOf, todayKey, tint, num, fmtMin, lastNDays, didWorkout, burnedKcal, rd1, macroTargets, LineChart, Card, GlassCard, useCountUp, Row, lbl, chip, cardioInfo, inp, ghost, primary, ConfirmX } from "../shared.jsx";
 
 const streakInfo = (schedule, checkFn) => {
   let current = 0;
@@ -73,9 +73,51 @@ const liftStats = (schedule) => {
   }).sort((a,b)=> a.daysAgo - b.daysAgo || b.count - a.count);
 };
 
-function LiftProgressCard({ schedule }) {
+function LiftProgressCard({ schedule, mutate }) {
   const stats = liftStats(schedule);
   const [pick, setPick] = useState(null);
+  const [renaming, setRenaming] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [renameMsg, setRenameMsg] = useState("");
+
+  // 기록에 남은 종목 이름을 한꺼번에 바꾼다.
+  // 같은 운동을 "벤치"·"벤치프레스"처럼 다르게 적어 따로 잡힌 경우, 같은 이름으로 맞추면 하나로 합쳐진다.
+  const doRename = () => {
+    const from = sel.name;
+    const to = newName.trim();
+    if (!to) { setRenameMsg("새 이름을 입력해주세요."); return; }
+    if (to === from) { setRenaming(false); return; }
+    mutate((prev)=>{
+      const next = { ...prev.schedule };
+      for (const kk of Object.keys(next)) {
+        const ml = next[kk]?.mainLift;
+        if (ml && String(ml.name).trim() === from) {
+          next[kk] = { ...next[kk], mainLift: { ...ml, name: to } };
+        }
+      }
+      return { ...prev, schedule: next };
+    }, `"${from}" → "${to}" 이름 변경`);
+    setPick(to);          // 바뀐 이름으로 계속 보고 있게
+    setRenaming(false);
+  };
+
+  // 종목 삭제 — 그 종목으로 남긴 대표운동 기록만 지운다.
+  // 그날의 부위 세트수·식단 같은 나머지 기록은 그대로 둔다.
+  const doDelete = () => {
+    const from = sel.name;
+    mutate((prev)=>{
+      const next = { ...prev.schedule };
+      for (const kk of Object.keys(next)) {
+        const ml = next[kk]?.mainLift;
+        if (ml && String(ml.name).trim() === from) {
+          next[kk] = { ...next[kk], mainLift: null };
+        }
+      }
+      return { ...prev, schedule: next };
+    }, `"${from}" 기록 ${sel.count}건`);
+    setPick(null);        // 첫 종목으로 돌아가기
+    setRenaming(false);
+  };
   if (stats.length === 0) {
     return (
       <Card>
@@ -114,11 +156,61 @@ function LiftProgressCard({ schedule }) {
       {stats.length>1 && (
         <div style={{ display:"flex", gap:5, marginTop:11, overflowX:"auto" }}>
           {stats.map((x)=>(
-            <button key={x.name} onClick={()=>setPick(x.name)}
+            <button key={x.name} onClick={()=>{ setPick(x.name); setRenaming(false); }}
               style={{...chip(sel.name===x.name, TYPES.push.color), padding:"5px 11px", fontSize:11.5, whiteSpace:"nowrap", flexShrink:0}}>
               {x.name}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* 종목 이름 바꾸기 — 같은 운동을 다른 이름으로 적어 따로 잡힌 걸 합칠 때 쓴다 */}
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:10 }}>
+        <span style={{ fontSize:12.5, fontWeight:800 }}>{sel.name}</span>
+        <span style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <button onClick={()=>{ setRenaming(v=>!v); setNewName(sel.name); setRenameMsg(""); }}
+            style={{ background:"none", border:"none", color:TYPES.push.color, fontSize:11.5,
+              fontWeight:800, cursor:"pointer", padding:0 }}>
+            {renaming ? "닫기" : "✏️ 이름 바꾸기"}
+          </button>
+          <ConfirmX onConfirm={doDelete} label={`${sel.count}건 삭제`} />
+        </span>
+      </div>
+
+      {renaming && (
+        <div style={{ marginTop:9, padding:"12px", background:C.surface2, borderRadius:11 }}>
+          <input value={newName} onChange={(e)=>{ setNewName(e.target.value); setRenameMsg(""); }}
+            placeholder="새 종목 이름"
+            style={{...inp, width:"100%", boxSizing:"border-box"}} />
+          {/* 이미 있는 이름을 고르면 두 기록이 하나로 합쳐진다 */}
+          {(()=>{
+            const t = newName.trim();
+            const merge = t && stats.find(x=>x.name!==sel.name && x.name.toLowerCase()===t.toLowerCase());
+            return merge ? (
+              <div style={{ fontSize:11, color:C.amber, marginTop:7, lineHeight:1.55 }}>
+                "{merge.name}" 과 합쳐져요. 두 기록({sel.count}회 + {merge.count}회)이 한 종목이 돼요.
+              </div>
+            ) : (
+              <div style={{ fontSize:10.5, color:C.muted, marginTop:7, lineHeight:1.55 }}>
+                지금까지 이 이름으로 남긴 기록 {sel.count}건이 모두 새 이름으로 바뀌어요.
+              </div>
+            );
+          })()}
+          {stats.length>1 && (
+            <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginTop:8 }}>
+              {stats.filter(x=>x.name!==sel.name).map(x=>(
+                <button key={x.name} onClick={()=>setNewName(x.name)}
+                  style={{...chip(false, C.amber), padding:"4px 9px", fontSize:10.5}}>
+                  {x.name}에 합치기
+                </button>
+              ))}
+            </div>
+          )}
+          {renameMsg && <div style={{ fontSize:11.5, color:C.danger, marginTop:7 }}>{renameMsg}</div>}
+          <div style={{ display:"flex", gap:7, marginTop:10 }}>
+            <button onClick={()=>setRenaming(false)} style={{...ghost, flex:1}}>취소</button>
+            <button onClick={doRename} style={{...primary(TYPES.push.color), flex:2}}>이름 바꾸기</button>
+          </div>
         </div>
       )}
 
@@ -200,7 +292,7 @@ function LiftProgressCard({ schedule }) {
 // ================= 체성분 분석 =================
 // 체중만 보면 근육이 늘었는지 알 수 없어서, 체지방률과 함께 분해해 방향을 제시한다.
 
-export default function Stats({ data, target, tdee, weight }) {
+export default function Stats({ data, target, tdee, weight, mutate }) {
   const [range, setRange] = useState("week");
   const [expanded, setExpanded] = useState(null);
   const days = rangeDays(range);
@@ -595,7 +687,7 @@ export default function Stats({ data, target, tdee, weight }) {
       </Card>
 
       {/* 중량 성장 */}
-      <LiftProgressCard schedule={data.schedule} />
+      <LiftProgressCard schedule={data.schedule} mutate={mutate} />
 
       {/* 부위별 볼륨 */}
       <Card>

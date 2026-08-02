@@ -1251,7 +1251,7 @@ function DayEditor({ dateKey, day, schedule, onClose, updateDay, favProps, apiKe
           <SecLabel>퀵 기록 · 부위 세트수 & 대표운동</SecLabel>
           <QuickWorkoutBlock partSets={draft.partSets} mainLift={draft.mainLift}
             onChangePartSets={(v)=>setDraft({ ...draft, partSets:v })}
-            onChangeMainLift={(v)=>setDraft({ ...draft, mainLift:v })} />
+            onChangeMainLift={(v)=>setDraft({ ...draft, mainLift:v })} schedule={schedule} />
 
           <SecLabel>세트 · 무게</SecLabel>
           {(routines.length>0 || draft.lifts.length>0) && (

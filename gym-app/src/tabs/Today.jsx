@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { TYPES, partBreakdown, CARDIO, WEEKDAYS, vocabTypeInfo, posInfo, REVIEW_GAP, dueList, speakWord, STUDY_ACCENT, SLEEP_ACCENT, MOODS, C, keyOf, todayKey, uid, extraWater, tint, num, show1, fmtMin, last7, lastNDays, didWorkout, emptyDay, stepsToKcal, burnedKcal, MACRO_GOALS, rd1, macroTargets, planDate, QuickWorkoutBlock, CONDITION_LABELS, SleepBlock, FoodSection, LineChart, Bars7, Card, GlassCard, useCountUp, Row, MiniCard, Collapsible, ConfirmX, lbl, inp, primary, ghost, stepBtn, chip, cardioInfo, posList } from "../shared.jsx";
 
-export default function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps, apiKey, customFoods, mutate }) {
+export default function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps, apiKey, customFoods, mutate, goToTab }) {
   const k = todayKey();
   const day = data.schedule[k] || emptyDay();
   const proteinSum = day.foods.reduce((s,f)=>s+num(f.protein),0);
@@ -108,10 +108,31 @@ export default function Today({ data, updateDay, addFoodsToday, target, tdee, we
       <div style={{ fontSize:30, fontWeight:800, letterSpacing:-1, marginTop:4 }}>
         {dt.getMonth()+1}월 {dt.getDate()}일 <span style={{ fontSize:15, color:C.muted }}>{WEEKDAYS[dt.getDay()]}</span>
       </div>
-      {(proteinStreak>=2 || workoutStreak>=2 || !todaySleep) && (
-        <div style={{ display:"flex", gap:6, marginTop:10, flexWrap:"wrap" }}>
+      {/* 상태 배지 줄 — 인바디는 늘 보이고, 스트릭·수면은 해당될 때만 붙는다 */}
+      <div style={{ display:"flex", gap:6, marginTop:10, flexWrap:"wrap" }}>
           {proteinStreak>=2 && <span style={{ fontSize:11.5, fontWeight:800, color:TYPES.legs.color, background:tint(TYPES.legs.color,0.13), border:`1px solid ${tint(TYPES.legs.color,0.4)}`, borderRadius:999, padding:"5px 11px" }}>🔥 단백질 목표 {proteinStreak}일 연속</span>}
           {workoutStreak>=2 && <span style={{ fontSize:11.5, fontWeight:800, color:TYPES.push.color, background:tint(TYPES.push.color,0.13), border:`1px solid ${tint(TYPES.push.color,0.4)}`, borderRadius:999, padding:"5px 11px" }}>💪 운동 {workoutStreak}일 연속</span>}
+          {/* 인바디(체성분) 측정 배지 — 주 1회 기준으로 남은 날 또는 지난 날을 알려준다 */}
+          {(()=>{
+            const mr = measureReminder(data.measurements);
+            const over = mr.never || mr.due;
+            const col = over ? C.amber : mr.soon ? C.amber : C.muted;
+            // 딱 7일째면 "잴 때", 그 이후로 밀리면 며칠 밀렸는지 알려준다
+            const text = mr.never ? "인바디 기록 없음"
+              : mr.daysAgo === 7 ? "인바디 잴 때"
+              : mr.due ? `인바디 ${mr.daysAgo - 7}일 밀림`
+              : `인바디 ${mr.left}일 후`;
+            return (
+              <button onClick={()=>goToTab && goToTab("body")}
+                style={{ fontSize:11.5, fontWeight:800, color:col,
+                  background: over ? tint(C.amber,0.13) : C.surface,
+                  border:`1px solid ${over ? tint(C.amber,0.4) : C.line}`,
+                  borderRadius:999, padding:"5px 11px", cursor:"pointer" }}>
+                ⚖️ {text}
+              </button>
+            );
+          })()}
+
           {/* 수면을 안 적었을 때만 뜨는 칩. 적으면 todaySleep이 채워져 자동으로 사라진다. */}
           {!todaySleep && (
             <button onClick={()=>setSleepOpen(n=>n+1)}
@@ -120,8 +141,7 @@ export default function Today({ data, updateDay, addFoodsToday, target, tdee, we
               😴 수면 미기입
             </button>
           )}
-        </div>
-      )}
+      </div>
 
       {/* 첫 실행 안내 — 아직 아무것도 없을 때만 */}
       {isFirstRun && (
@@ -393,7 +413,7 @@ export default function Today({ data, updateDay, addFoodsToday, target, tdee, we
         <div style={{ marginTop:10 }}>
           <QuickWorkoutBlock partSets={day.partSets} mainLift={day.mainLift}
             onChangePartSets={(v)=>updateDay(k,{partSets:v})}
-            onChangeMainLift={(v)=>updateDay(k,{mainLift:v})} />
+            onChangeMainLift={(v)=>updateDay(k,{mainLift:v})} schedule={data.schedule} />
         </div>
         {day.mainLift?.name && (()=>{
           const hist = mainLiftHistory(data.schedule, day.mainLift.name);
@@ -526,7 +546,9 @@ const measureReminder = (measurements) => {
   const last = list[list.length-1];
   const t = new Date(); t.setHours(0,0,0,0);
   const daysAgo = Math.round((t - new Date(last.date+"T00:00:00")) / 86400000);
-  return { never:false, daysAgo, lastDate:last.date, due: daysAgo >= 7, soon: daysAgo === 6 };
+  // 주 1회 기준. 아직이면 며칠 남았는지, 지났으면 며칠 지났는지 알려준다.
+  const left = 7 - daysAgo;
+  return { never:false, daysAgo, lastDate:last.date, due: daysAgo >= 7, soon: daysAgo === 6, left };
 };
 
 // 칼로리 뱅킹 — 하루 초과해도 주간 평균으로 보면 괜찮은 경우가 많다.
