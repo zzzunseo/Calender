@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
-import { C, todayKey, uid, extraWater, num, emptyDay, normalize, computeTDEE, UndoToast, QuickAdd, SaveBadge, TabBar } from "./shared.jsx";
+import { C, tint, todayKey, uid, extraWater, num, emptyDay, normalize, computeTDEE, UndoToast, QuickAdd, SaveBadge, TabBar } from "./shared.jsx";
+import { loadCloudCfg, saveCloudCfg, clearCloudCfg, connect as cloudConnect, push as cloudPush, pull as cloudPull, summarizeData, fmtAgo } from "./cloud.js";
 
 // 탭 화면은 실제로 들어갈 때만 불러온다(코드 분할).
 // 덕분에 첫 로딩이 가벼워지고, 안 쓰는 탭 코드는 내려받지 않는다.
@@ -38,7 +39,7 @@ export default function App() {
         let chosen = null;
         if (main && bak) chosen = (num(bak.updatedAt) > num(main.updatedAt)) ? bak : main;
         else chosen = main || bak;
-        if (chosen) setData(normalize(chosen));
+        if (chosen) { setData(normalize(chosen)); localStamp.current = num(chosen.updatedAt); }
         else {
           const old = await window.storage.get("schedule", false).catch(()=>null);
           if (old && old.value) {
@@ -82,11 +83,18 @@ export default function App() {
 
   // 저장을 짧게 묶어서(디바운스) 실행: 키 입력마다 매번 통째 저장이 나가는 걸 막아
   // 요청 폭주로 인한 유실 가능성을 줄임. 화면 전환/이탈 시엔 즉시 flush.
+  // 마지막으로 바뀐 시각. data 상태에는 updatedAt이 안 들어가고 저장 payload에만 붙기 때문에,
+  // 클라우드의 기록과 어느 쪽이 최신인지 비교하려면 이렇게 따로 들고 있어야 한다.
+  const localStamp = useRef(0);
+
   const save = (next) => {
     setSaveStatus("pending");
-    pendingPayload.current = JSON.stringify({ ...next, updatedAt: Date.now() });
+    const stamp = Date.now();
+    localStamp.current = stamp;
+    pendingPayload.current = JSON.stringify({ ...next, updatedAt: stamp });
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(flushWrite, 450);
+    schedulePush();
   };
 
   useEffect(() => {
@@ -124,6 +132,138 @@ export default function App() {
     if (undoLabel) armUndo(undoLabel);
     setData((prev)=>{ const next = fn(prev); save(next); return next; });
   }, []);
+
+  // ================= 기기 간 동기화 =================
+  // 규칙: 올리기는 마음대로 해도 안전하고(원격은 사본일 뿐), 내려받기는 로컬을 덮어쓰므로
+  // 반드시 사용자 확인을 받는다. 자동으로는 "원격이 더 최신인지"만 확인하고 배너로 알린다.
+  const [cloudCfg, setCloudCfg] = useState(null);
+  const [cloudState, setCloudState] = useState({ status:"off", msg:"" });  // off|idle|syncing|ok|error
+  const [incoming, setIncoming] = useState(null);
+  const cloudRef = useRef(null);
+  const pushTimer = useRef(null);
+  const pullChecked = useRef(false);
+
+  useEffect(()=>{ cloudRef.current = cloudCfg; }, [cloudCfg]);
+
+  const putCfg = async (cfg) => { cloudRef.current = cfg; setCloudCfg(cfg); await saveCloudCfg(cfg); };
+
+  const doPush = useCallback(async () => {
+    const cfg = cloudRef.current;
+    if (!cfg || !cfg.token || !cfg.gistId) return;
+    setCloudState({ status:"syncing", msg:"" });
+    try {
+      const stamp = localStamp.current || Date.now();
+      const at = await cloudPush(cfg, { ...dataRef.current, updatedAt: stamp });
+      await putCfg({ ...cfg, lastSyncAt: at, pushedStamp: stamp });
+      setCloudState({ status:"ok", msg:"" });
+    } catch (e) {
+      setCloudState({ status:"error", msg: e.message || "올리지 못했어요." });
+    }
+  }, []);
+
+  // 저장할 때마다 바로 올리면 요청이 폭주하므로, 손을 뗀 뒤 20초 후에 한 번만 올린다
+  const schedulePush = () => {
+    const cfg = cloudRef.current;
+    if (!cfg || cfg.auto === false) return;
+    if (pushTimer.current) clearTimeout(pushTimer.current);
+    pushTimer.current = setTimeout(()=>{ doPush(); }, 20000);
+  };
+
+  const doPull = useCallback(async ({ silent = false } = {}) => {
+    const cfg = cloudRef.current;
+    if (!cfg || !cfg.token || !cfg.gistId) return;
+    setCloudState({ status:"syncing", msg:"" });
+    try {
+      const got = await cloudPull(cfg);
+      const remoteStamp = num(got.data && got.data.updatedAt) || got.remoteAt;
+      const localStampV = localStamp.current || 0;
+      // 시계 오차·저장 순서 때문에 근소한 차이는 같은 것으로 본다
+      if (remoteStamp > localStampV + 3000) {
+        setIncoming({ ...got, remoteStamp,
+          remoteSummary: summarizeData(got.data), localSummary: summarizeData(dataRef.current) });
+        setCloudState({ status:"idle", msg:"" });
+      } else {
+        setCloudState({ status:"ok", msg: silent ? "" : "이미 최신이에요." });
+      }
+    } catch (e) {
+      setCloudState({ status:"error", msg: e.message || "내려받지 못했어요." });
+    }
+  }, []);
+
+  const applyIncoming = useCallback(() => {
+    if (!incoming) return;
+    // persist에 라벨을 넘기면 9초간 되돌리기 배너가 뜬다 — 덮어쓰기 사고의 안전망
+    persist(normalize(incoming.data), "클라우드에서 가져오기");
+    // 방금 내려받은 내용을 그대로 되올리면 다른 기기에 "변경됨" 배너가 헛으로 뜬다 → 예약된 업로드 취소
+    if (pushTimer.current) { clearTimeout(pushTimer.current); pushTimer.current = null; }
+    localStamp.current = incoming.remoteStamp;
+    setIncoming(null);
+    setCloudState({ status:"ok", msg:"클라우드 기록을 가져왔어요." });
+  }, [incoming]);
+
+  const doConnect = useCallback(async (token) => {
+    setCloudState({ status:"syncing", msg:"" });
+    try {
+      const res = await cloudConnect(token);
+      const cfg = { token: res.token, gistId: res.gistId, login: res.login, auto: true, lastSyncAt: 0, pushedStamp: 0 };
+      await putCfg(cfg);
+      // 새로 만든 저장소면 지금 기록을 올리고, 이미 있던 저장소면 어느 쪽이 최신인지 확인만 한다
+      if (res.created) { await doPush(); }
+      else { await doPull({ silent: true }); }
+      return { ok: true, created: res.created, login: res.login };
+    } catch (e) {
+      setCloudState({ status:"error", msg: e.message || "연결하지 못했어요." });
+      return { ok: false, error: e.message };
+    }
+  }, [doPush, doPull]);
+
+  const doDisconnect = useCallback(async () => {
+    if (pushTimer.current) clearTimeout(pushTimer.current);
+    await clearCloudCfg();
+    cloudRef.current = null;
+    setCloudCfg(null); setIncoming(null);
+    setCloudState({ status:"off", msg:"" });
+  }, []);
+
+  const setAuto = useCallback(async (on) => {
+    const cfg = cloudRef.current; if (!cfg) return;
+    await putCfg({ ...cfg, auto: on });
+  }, []);
+
+  useEffect(()=>{ (async()=>{
+    const cfg = await loadCloudCfg();
+    if (cfg && cfg.token && cfg.gistId) { cloudRef.current = cfg; setCloudCfg(cfg); setCloudState({ status:"idle", msg:"" }); }
+  })(); }, []);
+
+  // 앱을 켤 때 한 번, 다른 기기에서 바뀐 게 있는지 확인
+  useEffect(()=>{
+    if (loading || !cloudCfg || pullChecked.current) return;
+    pullChecked.current = true;
+    if (cloudCfg.auto === false) return;
+    doPull({ silent: true });
+  }, [loading, cloudCfg, doPull]);
+
+  // 앱을 벗어날 때 예약된 업로드를 앞당겨 실행 (탭을 닫아도 기록이 남게)
+  useEffect(()=>{
+    const onHide = () => {
+      if (document.visibilityState !== "hidden") return;
+      const cfg = cloudRef.current;
+      if (!cfg || cfg.auto === false) return;
+      if (!pushTimer.current) return;
+      clearTimeout(pushTimer.current); pushTimer.current = null;
+      doPush();
+    };
+    document.addEventListener("visibilitychange", onHide);
+    return ()=>document.removeEventListener("visibilitychange", onHide);
+  }, [doPush]);
+
+  const cloud = {
+    cfg: cloudCfg, state: cloudState, incoming,
+    connect: doConnect, disconnect: doDisconnect, setAuto,
+    push: doPush, pull: ()=>doPull({ silent:false }),
+    apply: applyIncoming, dismiss: ()=>setIncoming(null),
+    fmtAgo,
+  };
 
   const updateDay = useCallback((dateKey, patch, undoLabel) => {
     mutate((prev)=>{
@@ -169,9 +309,10 @@ export default function App() {
           {tab==="foods" && <Foods addFoodsToday={addFoodsToday} apiKey={data.profile.apiKey} customFoods={data.customFoods} mutate={mutate} schedule={data.schedule} favorites={data.favorites} mealSets={data.mealSets} target={proteinTarget()} tdee={computeTDEE(data.profile, latestWeight())} surplus={num(data.profile.surplus)} addFavorite={addFavorite} removeFavorite={removeFavorite} />}
           {tab==="study" && <Study data={data} persist={persist} mutate={mutate} />}
           {tab==="stats" && <Stats data={data} target={proteinTarget()} tdee={computeTDEE(data.profile, latestWeight())} weight={latestWeight()} mutate={mutate} />}
-          {tab==="body" && <Body data={data} persist={persist} mutate={mutate} target={proteinTarget()} latestWeight={latestWeight()} tdee={computeTDEE(data.profile, latestWeight())} />}
+          {tab==="body" && <Body data={data} persist={persist} mutate={mutate} target={proteinTarget()} latestWeight={latestWeight()} tdee={computeTDEE(data.profile, latestWeight())} cloud={cloud} />}
         </Suspense>
       </div>
+      <CloudIncomingBanner incoming={incoming} onApply={applyIncoming} onDismiss={()=>setIncoming(null)} />
       <SaveBadge status={saveStatus} onRetry={flushWrite} />
       <UndoToast state={undoState} onUndo={runUndo} onClose={()=>setUndoState(null)} />
       <QuickAdd day={data.schedule[todayKey()] || emptyDay()} updateToday={(patch)=>updateDay(todayKey(), patch)}
@@ -183,6 +324,59 @@ export default function App() {
             note:"", tag:"", pos:"", level:0, reviewCount:0, wrong:0, starred:false, lastReview:null, created:todayKey() }] };
         })} />
       <TabBar tab={tab} setTab={setTab} />
+    </div>
+  );
+}
+
+// 다른 기기에서 기록이 바뀌었을 때 뜨는 알림.
+// 자동으로 덮어쓰지 않는 게 핵심 — 무엇이 얼마나 다른지 보여주고 사용자가 고르게 한다.
+function CloudIncomingBanner({ incoming, onApply, onDismiss }) {
+  if (!incoming) return null;
+  const r = incoming.remoteSummary || {}, l = incoming.localSummary || {};
+  const rows = [
+    ["기록 일수", l.days, r.days],
+    ["측정", l.measures, r.measures],
+    ["단어", l.vocab, r.vocab],
+    ["공부 기록", l.study, r.study],
+  ].filter(([, a, b]) => a !== b);
+  const loses = rows.some(([, a, b]) => a > b);
+  return (
+    <div style={{ position:"fixed", left:12, right:12, bottom:"calc(150px + env(safe-area-inset-bottom))", zIndex:60, maxWidth:436, margin:"0 auto",
+      background:C.surface, border:`1px solid ${tint("#8FD3FF",0.45)}`, borderRadius:16, padding:"14px 15px",
+      boxShadow:"0 8px 26px rgba(0,0,0,0.45)" }}>
+      <div style={{ fontSize:13, fontWeight:800, color:"#8FD3FF" }}>
+        ☁️ 다른 기기의 최신 기록이 있어요
+      </div>
+      <div style={{ fontSize:11.5, color:C.muted, marginTop:5, lineHeight:1.55 }}>
+        {incoming.device ? `${incoming.device}에서 ` : ""}{fmtAgo(incoming.remoteStamp)}에 저장됐어요.
+      </div>
+      {rows.length > 0 && (
+        <div style={{ marginTop:9, background:C.surface2, borderRadius:10, padding:"9px 11px" }}>
+          {rows.map(([k, a, b])=>(
+            <div key={k} style={{ display:"flex", justifyContent:"space-between", fontSize:11.5, padding:"2px 0" }}>
+              <span style={{ color:C.muted }}>{k}</span>
+              <span style={{ color:C.text, fontWeight:700 }}>
+                {a ?? 0} → <span style={{ color: b > (a ?? 0) ? "#B6E34B" : C.danger }}>{b ?? 0}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {loses && (
+        <div style={{ fontSize:11, color:C.amber, marginTop:8, lineHeight:1.5 }}>
+          ⚠️ 이 기기에만 있는 기록이 사라질 수 있어요. 가져오기 후 9초 안에 되돌릴 수 있어요.
+        </div>
+      )}
+      <div style={{ display:"flex", gap:8, marginTop:11 }}>
+        <button onClick={onDismiss} style={{ flex:1, padding:"11px", borderRadius:11, cursor:"pointer",
+          background:"transparent", border:`1px solid ${C.line}`, color:C.muted, fontSize:12.5, fontWeight:700 }}>
+          이 기기 유지
+        </button>
+        <button onClick={onApply} style={{ flex:1.4, padding:"11px", borderRadius:11, cursor:"pointer",
+          background:"#8FD3FF", border:"none", color:"#141519", fontSize:12.5, fontWeight:800 }}>
+          가져오기
+        </button>
+      </div>
     </div>
   );
 }
