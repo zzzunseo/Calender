@@ -120,7 +120,7 @@ const bulkVerdict = (trend, weight) => {
   return { tone:"good", title:"방향은 괜찮아요", msg:"측정을 몇 번 더 쌓으면 더 정확하게 볼 수 있어요." };
 };
 
-export default function Body({ data, persist, mutate, target, latestWeight, tdee }) {
+export default function Body({ data, persist, mutate, target, latestWeight, tdee, cloud }) {
   const [m, setM] = useState({ date:todayKey(), weight:"", fat:"", muscle:"", note:"" });
   const [metric, setMetric] = useState("weight");
   const [importText, setImportText] = useState("");
@@ -365,6 +365,9 @@ export default function Body({ data, persist, mutate, target, latestWeight, tdee
         </Card>
       )}
 
+      {/* 기기 간 동기화 — 백업보다 위에 둔다. 자동으로 돌아가면 수동 백업 부담이 줄기 때문 */}
+      <CloudSyncCard cloud={cloud} />
+
       {/* 백업 */}
       <Card>
         <Row><span style={lbl}>데이터 백업</span>
@@ -435,6 +438,150 @@ export default function Body({ data, persist, mutate, target, latestWeight, tdee
 
 // ================= 회복 · 주간 운동 목표 =================
 // 벌크 중엔 "더 많이"보다 "회복되는 만큼"이 중요해서, 경고와 목표를 함께 둔다.
+
+// ================= 기기 간 동기화 =================
+// 서버 없이 폰↔PC를 맞추려고 GitHub의 비공개 Gist를 저장소로 빌려 쓴다.
+// 토큰은 앱 데이터와 분리해서 보관하므로 백업 JSON에는 절대 안 섞인다.
+const CLOUD = "#8FD3FF";
+
+function CloudSyncCard({ cloud }) {
+  const [token, setToken] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [confirmOff, setConfirmOff] = useState(false);
+  if (!cloud) return null;
+
+  const { cfg, state } = cloud;
+  const connected = !!(cfg && cfg.gistId);
+
+  const run = async (fn) => { setBusy(true); setMsg(""); try { await fn(); } finally { setBusy(false); } };
+
+  const doConnect = () => run(async () => {
+    if (!token.trim()) { setMsg("토큰을 붙여넣어 주세요."); return; }
+    const res = await cloud.connect(token.trim());
+    if (res.ok) {
+      setToken("");
+      setMsg(res.created
+        ? `연결됐어요 (${res.login}). 지금 기록을 클라우드에 올렸어요.`
+        : `연결됐어요 (${res.login}). 기존 저장소를 찾아서 이어붙였어요.`);
+    }
+  });
+
+  const statusView = () => {
+    if (state.status === "syncing") return { text: "동기화 중…", color: CLOUD };
+    if (state.status === "error") return { text: state.msg || "오류", color: C.danger };
+    if (cfg && cfg.lastSyncAt) return { text: `${cloud.fmtAgo(cfg.lastSyncAt)} 동기화`, color: C.muted };
+    return { text: "아직 올린 적 없음", color: C.muted };
+  };
+  const st = statusView();
+
+  if (!connected) {
+    return (
+      <Collapsible title="☁️ 기기 간 동기화" accent={CLOUD} summary="꺼짐">
+        <Card>
+          <div style={{ fontSize:11.5, color:C.muted, lineHeight:1.65 }}>
+            지금 기록은 <b style={{color:C.text}}>이 브라우저 안에만</b> 있어요. 폰과 PC가 따로 놀고, 폰을 바꾸면 사라져요.
+            GitHub의 <b style={{color:C.text}}>비공개 Gist</b>를 저장소로 쓰면 기기끼리 자동으로 맞춰져요. 서버도 요금도 필요 없어요.
+          </div>
+          <div style={{ marginTop:12, padding:"11px 12px", background:C.surface2, borderRadius:10 }}>
+            <div style={{ fontSize:11, fontWeight:800, color:C.text, marginBottom:7 }}>준비 (1분)</div>
+            <div style={{ fontSize:11, color:C.muted, lineHeight:1.75 }}>
+              1. 아래 링크에서 <b style={{color:C.text}}>Generate new token (classic)</b><br/>
+              2. Expiration은 <b style={{color:C.text}}>No expiration</b><br/>
+              3. 권한은 <b style={{color:C.text}}>gist 하나만</b> 체크<br/>
+              4. 만들어진 <b style={{color:C.text}}>ghp_… 토큰</b>을 복사해서 아래에 붙여넣기
+            </div>
+            <a href="https://github.com/settings/tokens/new?scopes=gist&description=%EB%A6%B0%EB%A9%94%EC%8A%A4%EC%97%85%20%ED%8A%B8%EB%9E%98%EC%BB%A4"
+              target="_blank" rel="noreferrer"
+              style={{ display:"block", marginTop:9, fontSize:12, fontWeight:800, color:CLOUD, textDecoration:"none" }}>
+              → GitHub에서 토큰 만들기
+            </a>
+          </div>
+          <input value={token} onChange={(e)=>setToken(e.target.value)} placeholder="ghp_ 로 시작하는 토큰"
+            autoComplete="off" spellCheck={false}
+            style={{...inp, width:"100%", boxSizing:"border-box", marginTop:10, fontFamily:"monospace", fontSize:12.5}} />
+          <button onClick={doConnect} disabled={busy}
+            style={{...primary(CLOUD), width:"100%", marginTop:9, opacity:busy?0.6:1}}>
+            {busy ? "확인 중…" : "연결하기"}
+          </button>
+          {(msg || state.msg) && (
+            <div style={{ fontSize:11.5, marginTop:9, lineHeight:1.55,
+              color: state.status==="error" ? C.danger : CLOUD }}>{msg || state.msg}</div>
+          )}
+          <div style={{ fontSize:10.5, color:C.muted, marginTop:9, lineHeight:1.55 }}>
+            토큰은 이 브라우저에만 저장되고, 백업 파일에는 포함되지 않아요. gist 권한만 줬으면 다른 저장소는 건드릴 수 없어요.
+          </div>
+        </Card>
+      </Collapsible>
+    );
+  }
+
+  return (
+    <Card>
+      <Row>
+        <span style={lbl}>☁️ 기기 간 동기화</span>
+        <span style={{ fontSize:11.5, color:st.color, fontWeight: state.status==="error"?800:600 }}>{st.text}</span>
+      </Row>
+
+      <div style={{ fontSize:11.5, color:C.muted, marginTop:8, lineHeight:1.55 }}>
+        {cfg.login ? `${cfg.login} 계정의 비공개 Gist에 저장 중` : "비공개 Gist에 저장 중"}
+      </div>
+
+      {/* 자동 동기화 토글 */}
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10,
+        marginTop:11, padding:"11px 12px", background:C.surface2, borderRadius:10 }}>
+        <div style={{ minWidth:0 }}>
+          <div style={{ fontSize:12.5, fontWeight:800, color:C.text }}>자동 동기화</div>
+          <div style={{ fontSize:10.5, color:C.muted, marginTop:3, lineHeight:1.5 }}>
+            기록하면 잠시 뒤 알아서 올리고, 앱을 켤 때 다른 기기 변경을 확인해요
+          </div>
+        </div>
+        <button onClick={()=>cloud.setAuto(cfg.auto === false)}
+          style={{ width:48, height:28, borderRadius:99, flexShrink:0, cursor:"pointer", position:"relative",
+            border:`1px solid ${cfg.auto === false ? C.line : CLOUD}`,
+            background: cfg.auto === false ? C.surface : tint(CLOUD,0.3) }}>
+          <span style={{ position:"absolute", top:3, left: cfg.auto === false ? 4 : 24, width:20, height:20,
+            borderRadius:99, background: cfg.auto === false ? C.muted : CLOUD, transition:"left .15s" }} />
+        </button>
+      </div>
+
+      <div style={{ display:"flex", gap:8, marginTop:10 }}>
+        <button onClick={()=>run(cloud.push)} disabled={busy || state.status==="syncing"}
+          style={{...primary(CLOUD), flex:1, fontSize:12.5, opacity:(busy||state.status==="syncing")?0.6:1}}>
+          ↑ 지금 올리기
+        </button>
+        <button onClick={()=>run(cloud.pull)} disabled={busy || state.status==="syncing"}
+          style={{...ghost, flex:1, fontSize:12.5, padding:"12px 0", opacity:(busy||state.status==="syncing")?0.6:1}}>
+          ↓ 내려받기
+        </button>
+      </div>
+
+      {state.msg && (
+        <div style={{ fontSize:11.5, marginTop:9, lineHeight:1.55,
+          color: state.status==="error" ? C.danger : CLOUD }}>{state.msg}</div>
+      )}
+
+      <div style={{ fontSize:10.5, color:C.muted, marginTop:10, lineHeight:1.55 }}>
+        다른 기기에서도 <b style={{color:C.text}}>같은 토큰</b>으로 연결하면 저장소를 자동으로 찾아 이어붙여요.
+        내려받기는 이 기기 기록을 덮어쓰지만, 무엇이 달라지는지 먼저 보여주고 되돌릴 수도 있어요.
+      </div>
+
+      <div style={{ marginTop:11, textAlign:"right" }}>
+        {confirmOff ? (
+          <button onClick={()=>{ cloud.disconnect(); setConfirmOff(false); setMsg(""); }}
+            style={{ background:tint(C.danger,0.16), border:`1px solid ${C.danger}`, color:C.danger,
+              borderRadius:9, padding:"7px 12px", cursor:"pointer", fontSize:11, fontWeight:800 }}>
+            정말 해제할까요? (클라우드 기록은 남아요)
+          </button>
+        ) : (
+          <button onClick={()=>setConfirmOff(true)}
+            style={{ background:"none", border:"none", color:C.muted, fontSize:11, cursor:"pointer",
+              textDecoration:"underline" }}>연결 해제</button>
+        )}
+      </div>
+    </Card>
+  );
+}
 
 function BodyCompCard({ sorted, profile }) {
   const [range, setRange] = useState(8); // 비교 기간(주)

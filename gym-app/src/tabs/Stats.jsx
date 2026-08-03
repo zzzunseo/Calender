@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { TYPES, PARTS, CARDIO, isMastered, isOftenWrong, STUDY_ACCENT, SLEEP_ACCENT, MOODS, C, keyOf, todayKey, tint, num, fmtMin, lastNDays, didWorkout, burnedKcal, rd1, macroTargets, LineChart, Card, GlassCard, useCountUp, Row, lbl, chip, cardioInfo, inp, ghost, primary, ConfirmX } from "../shared.jsx";
+import { coachReport } from "../coach.js";
 
 const streakInfo = (schedule, checkFn) => {
   let current = 0;
@@ -291,6 +292,133 @@ function LiftProgressCard({ schedule, mutate }) {
 
 // ================= 체성분 분석 =================
 // 체중만 보면 근육이 늘었는지 알 수 없어서, 체지방률과 함께 분해해 방향을 제시한다.
+
+// ================= 주간 자동 코칭 =================
+// 통계는 "무슨 일이 있었나"까지만 보여준다. 이 카드는 "그래서 다음 주에 뭘 바꿀까"를 숫자로 준다.
+// 기간 토글(일간/주간/월간)과 무관하게 항상 최근 7일 대 그 전 7일로 본다 — 조정 주기가 주 단위라서.
+function CoachCard({ data, tdee, weight, target, mutate }) {
+  const rep = useMemo(() => coachReport(data, { tdee, weight, target }), [data, tdee, weight, target]);
+  const [showAll, setShowAll] = useState(false);
+  const [applied, setApplied] = useState(false);
+
+  const LV = {
+    bad:  { color: C.danger,          tag: "지금 고치기" },
+    warn: { color: C.amber,           tag: "손보면 좋음" },
+    good: { color: TYPES.legs.color,  tag: "" },
+    info: { color: SLEEP_ACCENT,      tag: "참고" },
+  };
+
+  if (!rep.ok) {
+    return (
+      <Card>
+        <Row><span style={lbl}>🤖 이번 주 코칭</span></Row>
+        <div style={{ fontSize:12.5, color:C.muted, marginTop:10, lineHeight:1.6 }}>{rep.reason}</div>
+      </Card>
+    );
+  }
+
+  const shown = showAll ? rep.actions : rep.actions.slice(0, 3);
+  const hidden = rep.actions.length - shown.length;
+  const headColor = rep.actions.length === 0 ? TYPES.legs.color
+    : rep.actions[0].level === "bad" ? C.danger : C.amber;
+
+  return (
+    <Card>
+      <Row>
+        <span style={lbl}>🤖 이번 주 코칭</span>
+        <span style={{ fontSize:11, fontWeight:800, color:rep.goal.color,
+          background:tint(rep.goal.color,0.15), padding:"3px 9px", borderRadius:999 }}>{rep.goal.label}</span>
+      </Row>
+
+      <div style={{ fontSize:14, fontWeight:800, color:headColor, marginTop:11, lineHeight:1.5 }}>
+        {rep.headline}
+      </div>
+
+      {/* 체중 추세 — 조정의 근거가 되는 숫자라 항상 위에 고정 */}
+      {rep.trend && !rep.trend.tooShort && rep.weight && (
+        <div style={{ display:"flex", alignItems:"baseline", gap:8, marginTop:10, padding:"9px 11px",
+          background:C.surface2, borderRadius:10 }}>
+          <span style={{ fontSize:11, color:C.muted, fontWeight:700 }}>체중 추세</span>
+          <span style={{ fontSize:15, fontWeight:800, letterSpacing:-0.5,
+            color: rep.trend.perWeek >= 0 ? TYPES.legs.color : SLEEP_ACCENT }}>
+            주 {rep.trend.perWeek >= 0 ? "+" : ""}{Math.round(rep.trend.perWeek*100)/100}kg
+          </span>
+          <span style={{ fontSize:10.5, color:C.muted }}>
+            권장 {rep.band.text} · 최근 {Math.round(rep.trend.spanDays)}일 {rep.trend.n}회 측정
+          </span>
+        </div>
+      )}
+
+      {/* 조치 목록 */}
+      {shown.map((it) => (
+        <div key={it.key} style={{ marginTop:11, padding:"12px 13px", borderRadius:12,
+          background:tint(LV[it.level].color, 0.07), border:`1px solid ${tint(LV[it.level].color,0.3)}` }}>
+          <div style={{ display:"flex", alignItems:"center", gap:7 }}>
+            <span style={{ fontSize:14 }}>{it.icon}</span>
+            <span style={{ fontSize:13, fontWeight:800, color:LV[it.level].color, flex:1, minWidth:0 }}>{it.title}</span>
+            {LV[it.level].tag && (
+              <span style={{ fontSize:9.5, fontWeight:800, color:LV[it.level].color, opacity:0.8,
+                border:`1px solid ${tint(LV[it.level].color,0.45)}`, borderRadius:999, padding:"2px 7px", flexShrink:0 }}>
+                {LV[it.level].tag}
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize:11.5, color:C.muted, marginTop:6, lineHeight:1.55 }}>{it.detail}</div>
+          {it.action && (
+            <div style={{ fontSize:12, color:C.text, marginTop:7, lineHeight:1.55, fontWeight:600 }}>
+              → {it.action}
+            </div>
+          )}
+          {/* 제안을 프로필 목표에 바로 반영 — 계산을 손으로 옮겨 적는 수고를 없앤다 */}
+          {it.newSurplus != null && (
+            <button
+              onClick={() => { mutate((prev)=>({ ...prev, profile:{ ...prev.profile, surplus: it.newSurplus } })); setApplied(true); }}
+              disabled={applied}
+              style={{ ...primary(applied ? C.muted : LV[it.level].color), width:"100%", marginTop:10, fontSize:12,
+                cursor: applied ? "default" : "pointer" }}>
+              {applied ? "목표에 반영됨 ✓" : `목표 잉여를 ${it.newSurplus >= 0 ? "+" : ""}${it.newSurplus}kcal로 바꾸기`}
+            </button>
+          )}
+        </div>
+      ))}
+
+      {hidden > 0 && (
+        <button onClick={()=>setShowAll(true)} style={{...ghost, width:"100%", marginTop:10, fontSize:12}}>
+          {hidden}개 더 보기
+        </button>
+      )}
+
+      {/* 잘 되고 있는 것 — 고칠 것만 나열하면 기록할 맛이 안 난다 */}
+      {rep.goods.length > 0 && (
+        <div style={{ marginTop:13, paddingTop:12, borderTop:`1px solid ${C.line}` }}>
+          <div style={{ fontSize:11, color:C.muted, fontWeight:700, marginBottom:8 }}>잘 되고 있어요</div>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+            {rep.goods.map((g)=>(
+              <span key={g.key} style={{ fontSize:11, fontWeight:700, color:TYPES.legs.color,
+                background:tint(TYPES.legs.color,0.12), borderRadius:999, padding:"5px 10px" }}>
+                {g.icon} {g.title}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {rep.infos.length > 0 && showAll && (
+        <div style={{ marginTop:12, paddingTop:11, borderTop:`1px solid ${C.line}` }}>
+          {rep.infos.map((i)=>(
+            <div key={i.key} style={{ fontSize:11.5, color:C.muted, lineHeight:1.6, marginTop:4 }}>
+              {i.icon} <b style={{ color:C.text }}>{i.title}</b> — {i.detail}{i.action ? ` ${i.action}` : ""}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ fontSize:10, color:C.muted, marginTop:12, lineHeight:1.5 }}>
+        최근 7일과 그 전 7일을 비교해 계산했어요. 조정은 2주 정도 지켜본 뒤 다시 바꾸는 게 좋아요.
+      </div>
+    </Card>
+  );
+}
 
 export default function Stats({ data, target, tdee, weight, mutate }) {
   const [range, setRange] = useState("week");
@@ -596,6 +724,8 @@ export default function Stats({ data, target, tdee, weight, mutate }) {
           </div>
         </div>
       </GlassCard>
+
+      <CoachCard data={data} tdee={tdee} weight={weight} target={target} mutate={mutate} />
 
       {/* 단어장 진도 — 공부 탭에만 있으면 성과가 안 보여서 (13번) */}
       {(data.vocab||[]).length>0 && (()=>{
