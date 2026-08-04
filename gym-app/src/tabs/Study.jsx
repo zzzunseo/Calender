@@ -44,7 +44,7 @@ export const parseVocabLines = (text) => {
     let parts = null;
     // 쉼표만으로 나뉜 줄("address 주소, 다루다")은 앞쪽이 "단어+첫 뜻"으로 붙어 있을 수 있다.
     // 이때 쉼표로 먼저 자르면 단어가 "address 주소"가 되어버리므로,
-    // 확실한 구분자(탭·/·|·;·:·하이픈)가 있을 때만 그것으로 나눈다.
+    // 확실한 구분자(탭·|·;·:·하이픈)가 있을 때만 그것으로 나눈다.
     const hard = line.split(/\s*[\t|;:]\s*|\s+[-–—]\s+/).map(x=>x.trim()).filter(Boolean);
     const m = hard.length >= 2
       ? hard.flatMap(x=>x.split(/\s*,\s*/).map(y=>y.trim()).filter(Boolean))
@@ -960,18 +960,21 @@ function MarkBar({ inputRef, value, onChange }) {
 export function splitTokens(str) {
   const t = String(str || "").trim();
   if (!t) return [];
-  if (/[.?!]\s|[가-힣]{6,}/.test(t) && !/[,/\n]/.test(t)) return [];   // 서술형 메모는 제외
-  const items = t.split(/[,/·\n]/).map(x => x.trim()).filter(Boolean);
+  if (/[.?!]\s|[가-힣]{6,}/.test(t) && !/[,·\n]/.test(t)) return [];   // 서술형 메모는 제외
+  // 슬래시는 구분자로 쓰지 않는다. "provided(providing/assuming)that"처럼
+  // 한 표현 안에 슬래시가 들어가는 경우가 많아 쪼개면 표현이 부서진다.
+  const items = t.split(/[,·\n]/).map(x => x.trim()).filter(Boolean);
   return items.length >= 3 ? items : [];
 }
 
-// 패턴 줄: "+ 명 + 형(보어) / + 부사 + 형,p.p,v~ing" 처럼 슬래시로 이어 쓴 걸 줄로 나눈다
+// 패턴 줄 나누기 — 오직 줄바꿈만 기준으로 삼는다.
+// 예전엔 슬래시로도 나눴는데, 사용자가 "had pp/ 과거", "*시간/조건의 부사절*"처럼
+// 슬래시를 "또는"의 뜻으로 문장 안에서 쓰기 때문에 한 줄이 엉뚱하게 두 동강 났다.
+// 특히 강조 표기 *…* 안쪽이 잘리면 짝이 깨져 별표가 그대로 화면에 노출됐다.
 function patternLines(meaning) {
   const t = String(meaning || "").trim();
   if (!t) return [];
-  // 줄바꿈은 사용자가 직접 나눈 것이므로 최우선 구분자로 본다.
-  return t.split(/\n+/).flatMap(seg => seg.split(/\s*\/\s*(?=[+SVO가-힣(])/))
-    .map(x => x.trim()).filter(Boolean);
+  return t.split(/\n+/).map(x => x.trim()).filter(Boolean);
 }
 
 function GrammarBody({ v }) {
@@ -1173,7 +1176,7 @@ function VocabEditRow({ entry, onSave, onCancel }) {
       <input value={v.term} onChange={(e)=>setV({...v, term:e.target.value})}
         placeholder="단어" style={{...inp, width:"100%", boxSizing:"border-box"}} />
       <AutoArea inputRef={eMeaning} value={v.meaning} onChange={(val)=>setV({...v, meaning:val})}
-        placeholder={entry.type==="grammar"?"패턴 — 줄바꿈이나 / 로 여러 개":"뜻 (여러 개면 쉼표로: 주소, 다루다)"}
+        placeholder={entry.type==="grammar"?"패턴 — 줄바꿈으로 여러 개":"뜻 (여러 개면 쉼표로: 주소, 다루다)"}
         style={{ marginTop:6 }} />
       <MarkBar inputRef={eMeaning} value={v.meaning} onChange={(val)=>setV({...v, meaning:val})} />
       {entry.type!=="grammar" && (<>
@@ -1186,7 +1189,7 @@ function VocabEditRow({ entry, onSave, onCancel }) {
         </div>
       </>)}
       <AutoArea inputRef={eNote} value={v.note} onChange={(val)=>setV({...v, note:val})}
-        placeholder={entry.type==="grammar"?"해당 동사·표현 (쉼표·/·줄바꿈으로 구분)":"메모 (선택)"}
+        placeholder={entry.type==="grammar"?"해당 동사·표현 (쉼표나 줄바꿈으로 구분)":"메모 (선택)"}
         style={{ marginTop:8 }} />
       <MarkBar inputRef={eNote} value={v.note} onChange={(val)=>setV({...v, note:val})} />
       <AutoArea value={v.ex} onChange={(val)=>setV({...v, ex:val})}
@@ -1396,7 +1399,7 @@ ${terms.map((t,i)=>`${i+1}. ${t}`).join("\n")}
               fontFamily:"inherit", lineHeight:1.6, fontSize:13 }} />
 
           <div style={{ fontSize:10.5, color:C.muted, marginTop:7, lineHeight:1.55 }}>
-            구분자는 띄어쓰기 · 슬래시(/) · 쉼표 · 탭 다 돼요.
+            구분자는 띄어쓰기 · 쉼표 · 탭 · 하이픈이 돼요. 슬래시(/)는 raise/rise처럼 단어에 그대로 남아요.
           </div>
 
           {/* 품사를 뭐라고 써야 하는지 몰라서 막히는 일이 많아 표로 보여준다 */}
@@ -1812,7 +1815,7 @@ function StudyVocab({ data, mutate, apiKey }) {
               placeholder={draft.type==="word"?"단어 (예: comprehensive)":draft.type==="idiom"?"숙어 (예: in charge of)":"문법 포인트 (예: Only + 부사 도치)"}
               style={{...inp, width:"100%", boxSizing:"border-box", marginTop:8}} />
             <AutoArea inputRef={meaningRef} value={draft.meaning} onChange={(val)=>setDraft({...draft, meaning:val})}
-              placeholder={draft.type==="grammar"?"패턴 — 줄바꿈이나 / 로 여러 개\n예) + 목 + 형\n     S + V + 명":"뜻"}
+              placeholder={draft.type==="grammar"?"패턴 — 줄바꿈으로 여러 개\n예) + 목 + 형\n     S + V + 명":"뜻"}
               style={{ marginTop:6 }} />
             <MarkBar inputRef={meaningRef} value={draft.meaning}
               onChange={(val)=>setDraft({...draft, meaning:val})} />
@@ -1825,7 +1828,7 @@ function StudyVocab({ data, mutate, apiKey }) {
               </div>
             )}
             <AutoArea inputRef={noteRef} value={draft.note} onChange={(val)=>setDraft({...draft, note:val})}
-              placeholder={draft.type==="grammar"?"해당 동사·표현 (쉼표·/·줄바꿈으로 구분)":"메모 (선택)"}
+              placeholder={draft.type==="grammar"?"해당 동사·표현 (쉼표나 줄바꿈으로 구분)":"메모 (선택)"}
               style={{ marginTop:8 }} />
             <MarkBar inputRef={noteRef} value={draft.note}
               onChange={(val)=>setDraft({...draft, note:val})} />
