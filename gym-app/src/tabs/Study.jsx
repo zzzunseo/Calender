@@ -1,5 +1,5 @@
-import { useState, useRef } from "react";
-import { TYPES, VOCAB_TYPES, vocabTypeInfo, POS_LIST, posInfo, MASTER_LEVEL, isMastered, isOftenWrong, isDueToday, dueList, speakWord, reviewScore, STUDY_ACCENT, C, todayKey, uid, tint, num, fmtMin, last7, LineChart, Bars7, Card, Row, SheetLayer, lbl, inp, primary, ghost, stepBtn, xBtn, chip, sheet, grip, callClaudeAPI, posList, hasPos, togglePos, keyOf } from "../shared.jsx";
+import { useState, useRef, useEffect } from "react";
+import { TYPES, VOCAB_TYPES, vocabTypeInfo, POS_LIST, posInfo, MASTER_LEVEL, isMastered, isOftenWrong, isDueToday, dueList, speakWord, speechReady, primeSpeech, reviewScore, STUDY_ACCENT, C, todayKey, uid, tint, num, fmtMin, last7, LineChart, Bars7, Card, Row, SheetLayer, lbl, inp, primary, ghost, stepBtn, xBtn, chip, sheet, grip, callClaudeAPI, posList, hasPos, togglePos, keyOf } from "../shared.jsx";
 
 const DEFAULT_SUBJECTS = ["토익", "자격증"];
 // 토익 학습 영역 — 기록·점수를 파트 단위로 쪼개서 약점을 보이게 한다
@@ -134,7 +134,7 @@ const STUDY_PALETTE = ["#7C9CFF", "#FF9F6B", "#5AD1A0", "#E08CFF", "#FFD24B", "#
 const colorForSubject = (name) => { let h=0; for(const c of String(name)) h=(h*31+c.charCodeAt(0))>>>0; return STUDY_PALETTE[h % STUDY_PALETTE.length]; };
 
 export default function Study({ data, persist, mutate }) {
-  const [view, setView] = useState("dash"); // dash | log | vocab
+  const [view, setView] = useState("vocab"); // vocab | dash | log — 단어장을 가장 자주 써서 기본 화면으로 둔다
   const study = data.study||[];
   const tk = todayKey();
   const days = last7();
@@ -143,7 +143,7 @@ export default function Study({ data, persist, mutate }) {
 
   const tabs = (
     <div style={{ display:"flex", gap:6, marginTop:14 }}>
-      {[["dash","📊 현황"],["log","✍️ 기록"],["vocab","📖 단어장"]].map(([k,label])=>(
+      {[["vocab","📖 단어장"],["dash","📊 현황"],["log","✍️ 기록"]].map(([k,label])=>(
         <button key={k} onClick={()=>setView(k)} style={{ flex:1, padding:"10px 0", borderRadius:11, cursor:"pointer",
           border:`1.5px solid ${view===k?STUDY_ACCENT:C.line}`,
           background: view===k?tint(STUDY_ACCENT,0.15):C.surface,
@@ -595,6 +595,8 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
   const [correct, setCorrect] = useState(0);
   const [wrongList, setWrongList] = useState([]);
   const [starredMap, setStarred] = useState({}); // 결과 화면에서 누른 별표를 즉시 반영
+  const [autoSpeak, setAutoSpeak] = useState(false);
+  const canSpeak = speechReady();
 
   // 빈칸 모드는 예문에서 그 단어를 찾을 수 있어야 문제를 만들 수 있다
   const pool = dir==="cloze" ? vocab.filter(clozeReady)
@@ -628,10 +630,12 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
       const opts = [v, ...others].sort(()=>Math.random()-0.5);
       return { v, opts, answerId: v.id, cloze: dir==="cloze" ? makeCloze(v.note, v.term) : null };
     });
+    if (autoSpeak) primeSpeech();   // 버튼을 누른 이 시점이 iOS가 허용하는 유일한 타이밍
     setQs(made); setQi(0); setPicked(null); setCorrect(0); setWrongList([]); setStarted(true);
   };
 
   const cur = qs[qi] || null;
+  const done = started && qi >= qs.length;
   // 퀴즈에서는 품사를 숨긴다. 뜻 앞에 붙은 "n. / v." 표기도 답을 좁혀주는 힌트라 함께 지운다.
   const hidePos = (text)=> String(text||"")
     .replace(/(^|,\s*)(n|v|adj|adv|prep|conj)\.\s*/g, "$1")
@@ -639,6 +643,29 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
   // 보기에 뭘 적을지: 품사 모드는 품사 이름, 단어→뜻은 뜻, 나머지는 단어
   const label = (o)=> dir==="pos" ? o.label : (dir==="t2m" ? hidePos(o.meaning) : o.term);
   const question = (v)=> dir==="t2m" ? v.term : hidePos(v.meaning);
+
+  // 아직 못 맞힌 문제에서 영어를 읽어주면 답을 흘리는 방향이 있다.
+  //  · 단어→뜻 / 품사 맞히기 : 영어 단어가 이미 화면에 있으므로 언제든 재생 가능
+  //  · 뜻→단어 / 빈칸 채우기 : 답을 고른 뒤에만 재생
+  const speakable = !cur ? null
+    : (dir === "t2m" || dir === "pos") ? cur.v.term
+    : !picked ? null
+    : (dir === "cloze" ? (cur.v.note || cur.v.term) : cur.v.term);
+
+  // 문제가 넘어갈 때 자동 재생 (답이 새는 방향은 제외)
+  useEffect(() => {
+    if (!autoSpeak || !started || done) return;
+    if (dir !== "t2m" && dir !== "pos") return;
+    const q = qs[qi];
+    if (q) speakWord(q.v.term);
+  }, [qi, started, autoSpeak, dir, done, qs]);
+
+  // 답을 고른 뒤 정답 발음 (뜻→단어 · 빈칸 모드)
+  useEffect(() => {
+    if (!autoSpeak || !picked || !cur) return;
+    if (dir === "t2m" || dir === "pos") return;
+    speakWord(dir === "cloze" ? (cur.v.note || cur.v.term) : cur.v.term);
+  }, [picked, autoSpeak, dir, cur]);
 
   const choose = (opt) => {
     if (picked) return;
@@ -648,7 +675,6 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
     onAnswer(cur.v.id, ok ? 1 : -1);
   };
   const next = () => { setPicked(null); setQi(i=>i+1); };
-  const done = started && qi >= qs.length;
 
   return (
     <SheetLayer onClose={onClose}>
@@ -657,7 +683,19 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
           <div style={grip} />
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
             <span style={{ fontSize:16, fontWeight:800 }}>단어 퀴즈</span>
-            {started && !done && <span style={{ fontSize:12, color:C.muted }}>{qi+1} / {qs.length}</span>}
+            <div style={{ display:"flex", alignItems:"center", gap:9 }}>
+              {canSpeak && (
+                <button onClick={()=>{ const on = !autoSpeak; if (on) primeSpeech(); setAutoSpeak(on); }}
+                  title="문제가 넘어갈 때 발음 자동 재생"
+                  style={{ fontSize:10.5, fontWeight:800, cursor:"pointer", padding:"4px 9px", borderRadius:999,
+                    background: autoSpeak ? tint(STUDY_ACCENT,0.18) : "transparent",
+                    border:`1px solid ${autoSpeak ? STUDY_ACCENT : C.line}`,
+                    color: autoSpeak ? STUDY_ACCENT : C.muted }}>
+                  🔊 자동 {autoSpeak ? "켬" : "끔"}
+                </button>
+              )}
+              {started && !done && <span style={{ fontSize:12, color:C.muted }}>{qi+1} / {qs.length}</span>}
+            </div>
           </div>
         </div>
 
@@ -780,6 +818,16 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
                 <div style={{ fontSize:20, fontWeight:800, lineHeight:1.35, wordBreak:"break-word" }}>{question(cur.v)}</div>
               )}
               {cur.v.tag && <div style={{ fontSize:10, color:C.muted }}>{cur.v.tag}</div>}
+
+              {/* 발음 듣기 — 아직 답을 못 고른 상태에서 답이 새는 방향은 버튼을 숨긴다 */}
+              {canSpeak && speakable && (
+                <button onClick={()=>speakWord(speakable)} title="발음 듣기"
+                  style={{ marginTop:2, display:"flex", alignItems:"center", gap:5, cursor:"pointer",
+                    background:tint(STUDY_ACCENT,0.12), border:`1px solid ${tint(STUDY_ACCENT,0.35)}`,
+                    borderRadius:999, padding:"5px 12px", color:STUDY_ACCENT, fontSize:11, fontWeight:800 }}>
+                  🔊 발음 듣기
+                </button>
+              )}
             </div>
 
             <div style={{ display:"flex", flexDirection:"column", gap:7, marginTop:12 }}>

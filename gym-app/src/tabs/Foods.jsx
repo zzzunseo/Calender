@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { TYPES, C, todayKey, uid, tint, num, extractJSON, Card, Row, SheetLayer, ConfirmX, lbl, inp, primary, ghost, xBtn, chip, sheet, grip, callClaudeAPI } from "../shared.jsx";
+import { BarcodeSheet } from "../BarcodeSheet.jsx";
 import { localBrandSearch, makeCustomEntry, searchAllFoods, servingLabel, displayCat, CATEGORIES, gramsPerServing, portionHint, HAND_GUIDE, CONTAINER_GUIDE, CAT_PORTION_HINT, CATEGORY_GROUPS, catIcon, categoryCounts, NUTRI_FILTERS, proteinPer100kcal, categoryUsage } from "../foodDB.js";
 
 const MENU_PROMPT = `사용자는 린메스업(근육 늘리기) 중이라 단백질은 높고 칼로리는 과하지 않으며 비교적 건강한 메뉴를 선호해.
@@ -11,7 +12,7 @@ const MENU_PROMPT = `사용자는 린메스업(근육 늘리기) 중이라 단�
 입력:
 `;
 
-export default function Foods({ addFoodsToday, apiKey, customFoods, mutate, schedule, favorites, mealSets, target, tdee, surplus, addFavorite, removeFavorite }) {
+export default function Foods({ addFoodsToday, apiKey, customFoods, mutate, schedule, favorites, mealSets, target, tdee, surplus, addFavorite, removeFavorite, barcodes }) {
   const [mode, setMode] = useState("search");
   return (
     <div style={{ padding:"22px 18px 8px" }}>
@@ -29,7 +30,7 @@ export default function Foods({ addFoodsToday, apiKey, customFoods, mutate, sche
       </div>
 
       {mode==="search"
-        ? <FoodSearch addFoodsToday={addFoodsToday} customFoods={customFoods} mutate={mutate} schedule={schedule} favorites={favorites||[]} mealSets={mealSets||[]} target={target} tdee={tdee} surplus={surplus} addFavorite={addFavorite} removeFavorite={removeFavorite} />
+        ? <FoodSearch addFoodsToday={addFoodsToday} customFoods={customFoods} mutate={mutate} schedule={schedule} favorites={favorites||[]} mealSets={mealSets||[]} target={target} tdee={tdee} surplus={surplus} addFavorite={addFavorite} removeFavorite={removeFavorite} barcodes={barcodes||{}} />
         : <Dining addFoodsToday={addFoodsToday} apiKey={apiKey} customFoods={customFoods} embedded />}
     </div>
   );
@@ -163,7 +164,8 @@ function QuickPick({ favorites, recent, onAdd, onStar, onUnstar }) {
   );
 }
 
-function FoodSearch({ addFoodsToday, customFoods, mutate, schedule, favorites, mealSets, target, tdee, surplus, addFavorite, removeFavorite }) {
+function FoodSearch({ addFoodsToday, customFoods, mutate, schedule, favorites, mealSets, target, tdee, surplus, addFavorite, removeFavorite, barcodes }) {
+  const [scanOpen, setScanOpen] = useState(false);
   const [q, setQ] = useState("");
   const [cat, setCat] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -334,6 +336,23 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule, favorites, m
           favCount={favorites.length} customCount={customFoods.length}
           resultCount={results.length} onClose={()=>setFilterOpen(false)}
           onClear={clearFilters} />
+      )}
+
+      {/* 바코드 스캔 — 자주 먹는 제품은 검색보다 훨씬 빠르다 */}
+      {!q && !cat && (
+        <button onClick={()=>setScanOpen(true)}
+          style={{ width:"100%", marginTop:12, padding:"13px 0", borderRadius:12, cursor:"pointer",
+            background:tint(TYPES.legs.color,0.12), border:`1px solid ${tint(TYPES.legs.color,0.35)}`,
+            color:TYPES.legs.color, fontSize:13, fontWeight:800 }}>
+          📷 바코드로 기록
+          <span style={{ fontSize:10.5, fontWeight:600, opacity:0.75, marginLeft:7 }}>
+            {Object.keys(barcodes||{}).length ? `등록 ${Object.keys(barcodes).length}개` : "첫 등록부터 시작"}
+          </span>
+        </button>
+      )}
+      {scanOpen && (
+        <BarcodeSheet barcodes={barcodes||{}} mutate={mutate} customFoods={customFoods}
+          addFoodsToday={addFoodsToday} onClose={()=>setScanOpen(false)} />
       )}
 
       {/* 빠른 추가 — 별표·최근. 항목을 누르면 양을 정해서 넣는다 */}

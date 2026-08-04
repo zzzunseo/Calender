@@ -78,7 +78,6 @@ export default function Today({ data, updateDay, addFoodsToday, target, tdee, we
     return p >= target.low;
   }) : 0;
   const workoutStreak = calcStreak((kk)=> didWorkout(data.schedule[kk]));
-  const creatineStreak = calcStreak((kk)=> !!data.schedule[kk]?.creatine);
 
   // 오늘 달성 점수 (마스코트/게이지용): 판정 가능한 항목의 달성 비율
   const scoreParts = [];
@@ -355,22 +354,6 @@ export default function Today({ data, updateDay, addFoodsToday, target, tdee, we
           {[...Array(8)].map((_,i)=>(
             <div key={i} style={{ flex:1, height:6, borderRadius:99, background:(day.water||0)>i?"#6BC5F0":C.surface2, transition:"background .25s" }} />
           ))}
-        </div>
-        {/* 크레아틴 체크 */}
-        <div onClick={()=>updateDay(k,{creatine:!day.creatine})} style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
-          marginTop:12, padding:"11px 13px", borderRadius:12, cursor:"pointer", transition:"all .25s",
-          background: day.creatine ? tint("#C9A6FF",0.13) : C.surface2,
-          border:`1.5px solid ${day.creatine ? "#C9A6FF" : C.line}` }}>
-          <div style={{ display:"flex", alignItems:"center", gap:9 }}>
-            <span style={{ fontSize:17 }}>💊</span>
-            <div>
-              <div style={{ fontSize:13, fontWeight:800, color: day.creatine ? "#C9A6FF" : C.text }}>크레아틴</div>
-              {creatineStreak>=2 && <div style={{ fontSize:10.5, color:C.muted, marginTop:1 }}>{creatineStreak}일 연속 복용 중</div>}
-            </div>
-          </div>
-          <div style={{ width:24, height:24, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center",
-            background: day.creatine ? "#C9A6FF" : "transparent", border:`2px solid ${day.creatine ? "#C9A6FF" : C.muted}`,
-            color:"#141519", fontSize:14, fontWeight:900, transition:"all .25s" }}>{day.creatine ? "✓" : ""}</div>
         </div>
       </Card>
 

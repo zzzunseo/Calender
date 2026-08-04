@@ -1373,14 +1373,6 @@ function DayEditor({ dateKey, day, schedule, onClose, updateDay, favProps, apiKe
 
           <SecLabel>수면 · 컨디션</SecLabel>
           <SleepBlock value={draft.sleep} onChange={(v)=>setDraft({ ...draft, sleep:v })} />
-          <div onClick={()=>setDraft({ ...draft, creatine:!draft.creatine })} style={{ display:"flex", alignItems:"center", gap:8,
-            marginTop:12, padding:"10px 12px", borderRadius:10, cursor:"pointer",
-            background: draft.creatine ? tint("#C9A6FF",0.13) : C.surface2,
-            border:`1.5px solid ${draft.creatine ? "#C9A6FF" : C.line}` }}>
-            <span style={{ fontSize:15 }}>💊</span>
-            <span style={{ fontSize:12.5, fontWeight:800, color: draft.creatine ? "#C9A6FF" : C.muted }}>크레아틴 복용 {draft.creatine?"✓":""}</span>
-          </div>
-
           <SecLabel>기분</SecLabel>
           <div style={{ display:"flex", gap:6 }}>
             {MOODS.map((m)=>(

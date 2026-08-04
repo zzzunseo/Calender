@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { TYPES, PARTS, CARDIO, isMastered, isOftenWrong, STUDY_ACCENT, SLEEP_ACCENT, MOODS, C, keyOf, todayKey, tint, num, fmtMin, lastNDays, didWorkout, burnedKcal, rd1, macroTargets, LineChart, Card, GlassCard, useCountUp, Row, lbl, chip, cardioInfo, inp, ghost, primary, ConfirmX } from "../shared.jsx";
 import { coachReport } from "../coach.js";
+import { findPatterns } from "../patterns.js";
 
 const streakInfo = (schedule, checkFn) => {
   let current = 0;
@@ -420,6 +421,77 @@ function CoachCard({ data, tdee, weight, target, mutate }) {
   );
 }
 
+// ================= 내 패턴 찾기 =================
+// 코칭 카드가 "정해둔 기준에 내 기록을 맞춰보는" 것이라면, 이 카드는 그 반대다.
+// 기준 없이 내 기록끼리 짝지어 실제로 같이 움직이는 것만 골라낸다.
+function PatternCard({ data }) {
+  const rep = useMemo(()=>findPatterns(data), [data]);
+  const [showAll, setShowAll] = useState(false);
+
+  if (!rep.ok) {
+    const pct = Math.min(100, Math.round(rep.recorded / (rep.recorded + rep.need) * 100));
+    return (
+      <Card>
+        <Row><span style={lbl}>🔍 내 패턴 찾기</span></Row>
+        <div style={{ fontSize:12.5, color:C.muted, marginTop:9, lineHeight:1.6 }}>
+          기록이 <b style={{color:C.text}}>{rep.recorded}일</b> 모였어요. <b style={{color:C.text}}>{rep.need}일</b> 더 쌓이면
+          수면·식사·운동·컨디션 사이에 실제로 어떤 관계가 있는지 찾아드릴게요.
+        </div>
+        <div style={{ height:6, background:C.surface2, borderRadius:99, overflow:"hidden", marginTop:11 }}>
+          <div style={{ width:`${pct}%`, height:"100%", background:SLEEP_ACCENT, borderRadius:99 }} />
+        </div>
+      </Card>
+    );
+  }
+
+  const shown = showAll ? rep.findings : rep.findings.slice(0, 3);
+  const hidden = rep.findings.length - shown.length;
+
+  return (
+    <Card>
+      <Row>
+        <span style={lbl}>🔍 내 패턴 찾기</span>
+        <span style={{ fontSize:11, color:C.muted }}>{rep.recorded}일 기록 분석</span>
+      </Row>
+
+      {rep.findings.length === 0 ? (
+        <div style={{ fontSize:12.5, color:C.muted, marginTop:10, lineHeight:1.6 }}>
+          {rep.tested}가지를 살펴봤는데 뚜렷한 관계는 안 보였어요.
+          우연을 패턴으로 착각하지 않으려고 기준을 깐깐하게 잡아둔 탓도 있어요 — 기록이 더 쌓이면 다시 확인해볼게요.
+        </div>
+      ) : (
+        <>
+          <div style={{ fontSize:12, color:C.muted, marginTop:9, lineHeight:1.55 }}>
+            {rep.tested}가지를 살펴봐서 <b style={{color:C.text}}>{rep.findings.length}가지</b> 관계를 찾았어요.
+          </div>
+
+          {shown.map((f)=>{
+            const col = f.good ? TYPES.legs.color : C.amber;
+            return (
+              <div key={f.key} style={{ marginTop:11, padding:"12px 13px", borderRadius:12,
+                background:tint(col,0.07), border:`1px solid ${tint(col,0.28)}` }}>
+                <div style={{ fontSize:13, fontWeight:800, color:col, lineHeight:1.45 }}>{f.title}</div>
+                <div style={{ fontSize:11.5, color:C.text, marginTop:6, lineHeight:1.55 }}>{f.detail}</div>
+                <div style={{ fontSize:10, color:C.muted, marginTop:5 }}>{f.note}</div>
+              </div>
+            );
+          })}
+
+          {hidden > 0 && (
+            <button onClick={()=>setShowAll(true)} style={{...ghost, width:"100%", marginTop:10, fontSize:12}}>
+              {hidden}개 더 보기
+            </button>
+          )}
+        </>
+      )}
+
+      <div style={{ fontSize:10, color:C.muted, marginTop:12, lineHeight:1.55 }}>
+        같이 움직였다는 뜻이지 원인이라는 뜻은 아니에요. 표본이 적으면 우연일 수 있으니 일수를 함께 보세요.
+      </div>
+    </Card>
+  );
+}
+
 export default function Stats({ data, target, tdee, weight, mutate }) {
   const [range, setRange] = useState("week");
   const [expanded, setExpanded] = useState(null);
@@ -556,12 +628,13 @@ export default function Stats({ data, target, tdee, weight, mutate }) {
     : null;
 
   // 연속 기록 (현재 + 역대 최고)
+  // e.creatine은 지금은 안 쓰는 옛 필드다. 판정에서 빼면 예전에 크레아틴만 체크한 날이
+  // "기록 없는 날"로 바뀌어 연속 기록이 끊겨 보이므로 그대로 둔다.
   const hasLog = (e)=> !!(e && ((e.foods&&e.foods.length)||didWorkout(e)||e.sleep||e.water||e.creatine||e.mood||e.diary));
   const streaks = [
     { key:"기록", icon:"📝", color:TYPES.push.color, ...streakInfo(data.schedule, (kk)=>hasLog(data.schedule[kk])) },
     { key:"단백질 목표", icon:"🥩", color:TYPES.legs.color, ...(target ? streakInfo(data.schedule, (kk)=>(data.schedule[kk]?.foods||[]).reduce((s,f)=>s+num(f.protein),0) >= target.low) : {current:0,best:0}) },
     { key:"운동", icon:"💪", color:TYPES.pull.color, ...streakInfo(data.schedule, (kk)=>didWorkout(data.schedule[kk])) },
-    { key:"크레아틴", icon:"💊", color:"#C9A6FF", ...streakInfo(data.schedule, (kk)=>!!data.schedule[kk]?.creatine) },
   ];
   const anyStreak = streaks.some(s=>s.best>0);
 
@@ -629,16 +702,6 @@ export default function Stats({ data, target, tdee, weight, mutate }) {
     return { s:"warn", msg:"조금 더 마셔요" };
   };
 
-  // 크레아틴 복용
-  const creatineDays = days.filter((dk)=> data.schedule[dk]?.creatine).length;
-  const creatineStat = () => {
-    if (creatineDays===0) return { s:"none", msg:"기록 없음" };
-    const rate = creatineDays/nDays;
-    if (rate >= 0.85) return { s:"good", msg:"꾸준히 복용 중" };
-    if (rate >= 0.5) return { s:"warn", msg:`${nDays-creatineDays}일 빠뜨림` };
-    return { s:"bad", msg:"자주 빠뜨려요 — 매일 일정 시간에!" };
-  };
-
   const dayLabels = perDay.map((d)=> range==="month" ? d.dk.slice(8) : d.dk.slice(5).replace("-","/"));
   const rows = [
     { key:"protein", icon:"🥩", label:"단백질", value:`${avgProtein}g`, sub: range==="day"?"오늘":"하루 평균", stat:proteinStat(),
@@ -651,8 +714,6 @@ export default function Stats({ data, target, tdee, weight, mutate }) {
       series: perDay.map(d=>d.worked?1:0), goal:null, unit:"", color:TYPES.push.color },
     { key:"cardio", icon:"🏃", label:"유산소", value: fmtMin(cardioMinTotal), sub: range==="day"?"오늘":`${cardioSessions}회 · ${nDays}일 중`, stat:cardioStat(),
       series: perDay.map(d=>d.cardioMin), goal:null, unit:"분", color:C.amber },
-    { key:"creatine", icon:"💊", label:"크레아틴", value:`${creatineDays}/${nDays}일`, sub:"복용일", stat:creatineStat(),
-      series: perDay.map(d=> data.schedule[d.dk]?.creatine?1:0), goal:null, unit:"", color:"#C9A6FF" },
     { key:"sleep", icon:"😴", label:"수면", value: avgSleep!=null?`${avgSleep}h`:"—", sub:"하루 평균", stat:sleepStat(),
       series: perDay.map(d=>d.sleep), goal:7, goalType:"min", unit:"시간", color:SLEEP_ACCENT },
     { key:"study", icon:"📚", label:"공부", value: fmtMin(avgStudy), sub:"하루 평균", stat:studyStat(),
@@ -726,6 +787,8 @@ export default function Stats({ data, target, tdee, weight, mutate }) {
       </GlassCard>
 
       <CoachCard data={data} tdee={tdee} weight={weight} target={target} mutate={mutate} />
+
+      <PatternCard data={data} />
 
       {/* 단어장 진도 — 공부 탭에만 있으면 성과가 안 보여서 (13번) */}
       {(data.vocab||[]).length>0 && (()=>{
