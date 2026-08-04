@@ -888,12 +888,105 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
 // (전체 백업과 달리 단어장만 다루므로, 받는 쪽의 다른 기록은 건드리지 않는다)
 // 저장한 단어를 나중에 고치는 폼.
 // 뜻을 더 붙이거나 품사를 추가할 때 쓰며, 숙련도·별표 같은 학습 기록은 건드리지 않는다.
+
+// ================= 문법 항목 표시 =================
+// 문법은 단어와 성격이 다르다. 단어는 "term = meaning" 한 쌍이지만,
+// 문법은 제목 + 패턴 여러 줄 + 해당 동사 목록이라 같은 틀에 넣으면 읽기 어렵다.
+// (실제로 긴 동사 목록이 줄바꿈 없이 화면 밖으로 잘려 나가고 있었다.)
+
+// "2형식 동사(be,become,seem,remain,stay,appear)" 처럼
+// 제목 끝 괄호에 목록을 함께 적는 입력 습관을 살려, 제목과 목록을 분리해 보여준다.
+// 다만 "허(락)기(대)장(려)" 같은 암기용 표기까지 쪼개면 안 되므로
+// "끝에 붙은 괄호 하나 + 안에 구분자로 나뉜 항목 2개 이상"일 때만 분리한다.
+export function splitTermList(term) {
+  const t = String(term || "").trim();
+  const m = t.match(/^([^()]+)\(([^()]+)\)$/);
+  if (!m) return { head: t, items: [] };
+  const items = m[2].split(/[,/·]/).map(x => x.trim()).filter(Boolean);
+  if (items.length < 2) return { head: t, items: [] };
+  return { head: m[1].trim(), items };
+}
+
+// 동사 목록처럼 구분자로 이어 붙인 문자열을 칩으로 끊어준다.
+// 항목이 3개 미만이면 그냥 문장일 가능성이 높아 원문 그대로 둔다.
+export function splitTokens(str) {
+  const t = String(str || "").trim();
+  if (!t) return [];
+  if (/[.?!]\s|[가-힣]{6,}/.test(t) && !/[,/]/.test(t)) return [];   // 서술형 메모는 제외
+  const items = t.split(/[,/·]/).map(x => x.trim()).filter(Boolean);
+  return items.length >= 3 ? items : [];
+}
+
+// 패턴 줄: "+ 명 + 형(보어) / + 부사 + 형,p.p,v~ing" 처럼 슬래시로 이어 쓴 걸 줄로 나눈다
+function patternLines(meaning) {
+  const t = String(meaning || "").trim();
+  if (!t) return [];
+  return t.split(/\s*\/\s*(?=[+SVO가-힣(])/).map(x => x.trim()).filter(Boolean);
+}
+
+function GrammarBody({ v }) {
+  const { items } = splitTermList(v.term);   // 제목은 배지 줄에서 이미 렌더한다
+  const pats = patternLines(v.meaning);
+  const verbs = splitTokens(v.note);
+  const G = vocabTypeInfo("grammar").color;
+
+  return (
+    <>
+      {/* 제목 괄호 안에 있던 목록 */}
+      {items.length > 0 && (
+        <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
+          {items.map((w,i)=>(
+            <span key={i} style={{ fontSize:11, fontWeight:700, color:G, background:tint(G,0.12),
+              border:`1px solid ${tint(G,0.28)}`, borderRadius:6, padding:"2px 7px" }}>{w}</span>
+          ))}
+        </div>
+      )}
+
+      {/* 패턴 — 가장 중요한 정보라 박스로 띄운다 */}
+      {pats.length > 0 && (
+        <div style={{ marginTop:8, background:C.surface2, borderRadius:9, padding:"8px 10px",
+          borderLeft:`3px solid ${tint(G,0.55)}` }}>
+          {pats.map((line,i)=>(
+            <div key={i} style={{ fontSize:12.5, color:C.text, lineHeight:1.65, fontWeight:600,
+              wordBreak:"break-word", overflowWrap:"anywhere", letterSpacing:-0.1 }}>{line}</div>
+          ))}
+        </div>
+      )}
+
+      {/* 해당 동사·표현 — 길게 이어 붙은 목록이 화면을 뚫고 나가던 부분 */}
+      {verbs.length > 0 ? (
+        <div style={{ marginTop:8 }}>
+          <div style={{ fontSize:9.5, color:C.muted, fontWeight:700, marginBottom:4 }}>해당 표현 {verbs.length}개</div>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
+            {verbs.map((w,i)=>(
+              <span key={i} style={{ fontSize:11, color:C.muted, background:C.surface2,
+                borderRadius:6, padding:"2px 7px", wordBreak:"break-word" }}>{w}</span>
+            ))}
+          </div>
+        </div>
+      ) : (v.note && (
+        <div style={{ fontSize:11.5, color:C.muted, marginTop:7, lineHeight:1.55,
+          wordBreak:"break-word", overflowWrap:"anywhere" }}>{v.note}</div>
+      ))}
+
+      {/* 예문 */}
+      {v.ex && (
+        <div style={{ marginTop:8, fontSize:11.5, color:C.muted, lineHeight:1.6, fontStyle:"italic",
+          paddingLeft:9, borderLeft:`2px solid ${C.line}`, wordBreak:"break-word", overflowWrap:"anywhere" }}>
+          {v.ex}
+        </div>
+      )}
+    </>
+  );
+}
+
 function VocabEditRow({ entry, onSave, onCancel }) {
   const [v, setV] = useState({
     term: entry.term || "",
     meaning: entry.meaning || "",
     pos: entry.pos || "",
     note: entry.note || "",
+    ex: entry.ex || "",
     tag: entry.tag || "",
   });
   return (
@@ -901,7 +994,7 @@ function VocabEditRow({ entry, onSave, onCancel }) {
       <input value={v.term} onChange={(e)=>setV({...v, term:e.target.value})}
         placeholder="단어" style={{...inp, width:"100%", boxSizing:"border-box"}} />
       <input value={v.meaning} onChange={(e)=>setV({...v, meaning:e.target.value})}
-        placeholder="뜻 (여러 개면 쉼표로: 주소, 다루다)"
+        placeholder={entry.type==="grammar"?"패턴 (여러 개면 / 로 구분)":"뜻 (여러 개면 쉼표로: 주소, 다루다)"}
         style={{...inp, width:"100%", boxSizing:"border-box", marginTop:6}} />
       {entry.type!=="grammar" && (<>
         <div style={{ fontSize:10, color:C.muted, margin:"9px 0 5px" }}>품사 (여러 개 선택 가능)</div>
@@ -913,7 +1006,10 @@ function VocabEditRow({ entry, onSave, onCancel }) {
         </div>
       </>)}
       <input value={v.note} onChange={(e)=>setV({...v, note:e.target.value})}
-        placeholder="예문·메모 (선택)" style={{...inp, width:"100%", boxSizing:"border-box", marginTop:8}} />
+        placeholder={entry.type==="grammar"?"해당 동사·표현 (쉼표나 / 로 구분)":"메모 (선택)"}
+        style={{...inp, width:"100%", boxSizing:"border-box", marginTop:8}} />
+      <input value={v.ex} onChange={(e)=>setV({...v, ex:e.target.value})}
+        placeholder="예문 (선택)" style={{...inp, width:"100%", boxSizing:"border-box", marginTop:6}} />
       <input value={v.tag} onChange={(e)=>setV({...v, tag:e.target.value})}
         placeholder="섹션·태그 (선택)" style={{...inp, width:"100%", boxSizing:"border-box", marginTop:6}} />
       <div style={{ display:"flex", gap:7, marginTop:10 }}>
@@ -921,7 +1017,7 @@ function VocabEditRow({ entry, onSave, onCancel }) {
         <button onClick={()=>onSave({
             term: v.term.trim() || entry.term,
             meaning: v.meaning.trim(), pos: v.pos,
-            note: v.note.trim(), tag: v.tag.trim(),
+            note: v.note.trim(), ex: v.ex.trim(), tag: v.tag.trim(),
           })}
           style={{...primary(STUDY_ACCENT), flex:2}}>저장</button>
       </div>
@@ -1211,7 +1307,7 @@ function StudyVocab({ data, mutate, apiKey }) {
   const [q, setQ] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [reviewOn, setReviewOn] = useState(false);
-  const [draft, setDraft] = useState({ type:"word", term:"", meaning:"", note:"", tag:"", pos:"" });
+  const [draft, setDraft] = useState({ type:"word", term:"", meaning:"", note:"", ex:"", tag:"", pos:"" });
   const [filterMode, setFilterMode] = useState("all"); // all | star | weak | wrong
   const [tagFilter, setTagFilter] = useState("");      // 교재 섹션(태그)으로 좁혀 보기
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -1228,9 +1324,9 @@ function StudyVocab({ data, mutate, apiKey }) {
     const dup = vocab.find(v=>String(v.term).trim().toLowerCase()===t.toLowerCase());
     if (dup) { setDupMsg(`"${dup.term}" 은 이미 있어요`); setTimeout(()=>setDupMsg(""), 2500); return; }
     setDupMsg("");
-    save([...vocab, { id:uid(), type:draft.type, term:t, meaning:draft.meaning.trim(),
+    save([...vocab, { id:uid(), type:draft.type, term:t, meaning:draft.meaning.trim(), ex:draft.ex.trim(),
       note:draft.note.trim(), tag:draft.tag.trim(), pos:draft.pos, level:0, reviewCount:0, wrong:0, starred:false, lastReview:null, created:todayKey() }]);
-    setDraft({ type:draft.type, term:"", meaning:"", note:"", tag:draft.tag, pos:"" });
+    setDraft({ type:draft.type, term:"", meaning:"", note:"", ex:"", tag:draft.tag, pos:"" });
   };
   const remove = (id)=> { const v=vocab.find(x=>x.id===id); save(vocab.filter(x=>x.id!==id), v?`"${v.term}"`:"단어"); }
   const existingTerms = new Set(vocab.map(v=>String(v.term).trim().toLowerCase()));
@@ -1515,7 +1611,7 @@ function StudyVocab({ data, mutate, apiKey }) {
               placeholder={draft.type==="word"?"단어 (예: comprehensive)":draft.type==="idiom"?"숙어 (예: in charge of)":"문법 포인트 (예: Only + 부사 도치)"}
               style={{...inp, width:"100%", boxSizing:"border-box", marginTop:8}} />
             <input value={draft.meaning} onChange={(e)=>setDraft({...draft, meaning:e.target.value})}
-              placeholder={draft.type==="grammar"?"핵심 규칙 한 줄":"뜻"}
+              placeholder={draft.type==="grammar"?"패턴 (여러 개면 / 로 구분: + 목 + 형 / S + V + 명)":"뜻"}
               style={{...inp, width:"100%", boxSizing:"border-box", marginTop:6}} />
             {draft.type!=="grammar" && (
               <div style={{ display:"flex", gap:4, marginTop:7, flexWrap:"wrap" }}>
@@ -1526,9 +1622,17 @@ function StudyVocab({ data, mutate, apiKey }) {
               </div>
             )}
             <input value={draft.note} onChange={(e)=>setDraft({...draft, note:e.target.value})}
-              placeholder="예문·메모 (선택)" style={{...inp, width:"100%", boxSizing:"border-box", marginTop:6}} />
+              placeholder={draft.type==="grammar"?"해당 동사·표현 (쉼표나 / 로 구분)":"메모 (선택)"}
+              style={{...inp, width:"100%", boxSizing:"border-box", marginTop:6}} />
+            <input value={draft.ex} onChange={(e)=>setDraft({...draft, ex:e.target.value})}
+              placeholder="예문 (선택)" style={{...inp, width:"100%", boxSizing:"border-box", marginTop:6}} />
             <input value={draft.tag} onChange={(e)=>setDraft({...draft, tag:e.target.value})}
               placeholder="섹션·태그 (선택 · 예: Section 10 도치)" style={{...inp, width:"100%", boxSizing:"border-box", marginTop:6}} />
+            {draft.type==="grammar" && (
+              <div style={{ fontSize:10, color:C.muted, marginTop:7, lineHeight:1.6 }}>
+                제목 끝 괄호에 목록을 적으면 따로 떼어 보여줘요 — 2형식 동사(be, become, seem)
+              </div>
+            )}
             <button onClick={add} disabled={!draft.term.trim()}
               style={{...primary(STUDY_ACCENT), width:"100%", marginTop:9, opacity:draft.term.trim()?1:0.45}}>추가</button>
             {dupMsg && (
@@ -1576,11 +1680,14 @@ function StudyVocab({ data, mutate, apiKey }) {
             ) : listed.slice(0,60).map((v)=>{
               const ti = vocabTypeInfo(v.type);
               const lv = num(v.level);
+              const isG = v.type === "grammar";
               return (
-                <div key={v.id} style={{ display:"flex", alignItems:"flex-start", gap:9, padding:"10px 0", borderBottom:`1px solid ${C.line}` }}>
-                  <div style={{ flex:1, minWidth:0 }}>
+                <div key={v.id} style={{ padding:"11px 0", borderBottom:`1px solid ${C.line}` }}>
+                  <div style={{ minWidth:0 }}>
                     <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
-                      <span style={{ fontSize:13.5, fontWeight:800, wordBreak:"break-word" }}>{v.term}</span>
+                      <span style={{ fontSize: isG?14:13.5, fontWeight:800, wordBreak:"break-word" }}>
+                        {isG ? splitTermList(v.term).head : v.term}
+                      </span>
                       <span style={{ fontSize:9.5, fontWeight:800, color:ti.color, background:tint(ti.color,0.14),
                         borderRadius:999, padding:"1px 7px" }}>{ti.label}</span>
                       {posList(v.pos).map(pi=>(
@@ -1594,7 +1701,7 @@ function StudyVocab({ data, mutate, apiKey }) {
                         <button onClick={(e)=>{ e.stopPropagation(); speakWord(v.term); }} title="발음"
                           style={{ background:"none", border:"none", cursor:"pointer", fontSize:12, padding:0, opacity:0.55 }}>🔊</button>
                       )}
-                      {isPolysemous(v) && (
+                      {isPolysemous(v) && !isG && (
                         <span style={{ fontSize:9, fontWeight:800, color:"#C9A6FF",
                           background:tint("#C9A6FF",0.14), borderRadius:999, padding:"1px 6px" }}>
                           뜻 {Math.max(meaningCount(v), posList(v.pos).length)}개
@@ -1603,31 +1710,37 @@ function StudyVocab({ data, mutate, apiKey }) {
                       {isOftenWrong(v) && <span style={{ fontSize:9, fontWeight:800, color:C.danger,
                         background:tint(C.danger,0.13), borderRadius:999, padding:"1px 6px" }}>{num(v.wrong)}번 틀림</span>}
                     </div>
-                    {v.meaning && <div style={{ fontSize:12, color:C.muted, marginTop:3, lineHeight:1.5 }}>{v.meaning}</div>}
-                    {v.note && <div style={{ fontSize:11, color:C.muted, marginTop:2, opacity:0.8, lineHeight:1.5 }}>{v.note}</div>}
-                    <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:5 }}>
-                      {v.tag && <span style={{ fontSize:9.5, color:C.muted, background:C.surface2, borderRadius:999, padding:"2px 7px" }}>{v.tag}</span>}
-                      <div style={{ display:"flex", gap:2 }}>
+                    {isG ? <div style={{ marginTop:8 }}><GrammarBody v={v} /></div> : (<>
+                      {v.meaning && <div style={{ fontSize:12, color:C.muted, marginTop:3, lineHeight:1.5,
+                        wordBreak:"break-word", overflowWrap:"anywhere" }}>{v.meaning}</div>}
+                      {v.note && <div style={{ fontSize:11, color:C.muted, marginTop:2, opacity:0.8, lineHeight:1.5,
+                        wordBreak:"break-word", overflowWrap:"anywhere" }}>{v.note}</div>}
+                      {v.ex && <div style={{ fontSize:11, color:C.muted, marginTop:5, lineHeight:1.55, fontStyle:"italic",
+                        paddingLeft:9, borderLeft:`2px solid ${C.line}`, wordBreak:"break-word", overflowWrap:"anywhere" }}>{v.ex}</div>}
+                    </>)}
+                    {/* 태그·숙련도와 버튼을 한 줄에 둔다. 세로로 쌓인 버튼 기둥이
+                        본문 폭을 좁혀서 긴 문법 내용이 더 답답해 보였다. */}
+                    <div style={{ display:"flex", alignItems:"center", gap:7, marginTop:9, flexWrap:"wrap" }}>
+                      {v.tag && <span style={{ fontSize:9.5, color:C.muted, background:C.surface2, borderRadius:999, padding:"2px 8px" }}>{v.tag}</span>}
+                      <div style={{ display:"flex", gap:2.5 }}>
                         {[0,1,2,3,4].map(i=>(
                           <span key={i} style={{ width:5, height:5, borderRadius:"50%",
                             background: i<lv ? STUDY_ACCENT : C.line }} />
                         ))}
                       </div>
+                      <div style={{ flex:1 }} />
+                      <button onClick={()=>toggleStar(v.id)} title={v.starred?"별표 해제":"별표"}
+                        style={{ background:"none", border:"none", cursor:"pointer", fontSize:15, padding:"2px 3px",
+                          opacity: v.starred?1:0.3, lineHeight:1 }}>
+                        {v.starred ? "⭐" : "☆"}
+                      </button>
+                      <button onClick={()=>setEditId(editId===v.id?null:v.id)} title="수정"
+                        style={{ background:"none", border:"none", cursor:"pointer", fontSize:13, padding:"2px 3px", opacity:0.7 }}>✏️</button>
+                      <button onClick={()=>bump(v.id, 1)} title="외웠어요"
+                        style={{ background:"none", border:`1px solid ${tint(TYPES.legs.color,0.4)}`, color:TYPES.legs.color,
+                          borderRadius:7, padding:"3px 9px", cursor:"pointer", fontSize:11, lineHeight:1.4 }}>✓</button>
+                      <button onClick={()=>remove(v.id)} style={xBtn}>×</button>
                     </div>
-                  </div>
-                  <div style={{ display:"flex", flexDirection:"column", gap:4, flexShrink:0, alignItems:"center" }}>
-                    <button onClick={()=>toggleStar(v.id)} title={v.starred?"별표 해제":"별표"}
-                      style={{ background:"none", border:"none", cursor:"pointer", fontSize:16, padding:"0 2px",
-                        opacity: v.starred?1:0.3, lineHeight:1, transition:"opacity .15s" }}>
-                      {v.starred ? "⭐" : "☆"}
-                    </button>
-                    <button onClick={()=>setEditId(editId===v.id?null:v.id)} title="수정"
-                      style={{ background:"none", border:"none", cursor:"pointer", fontSize:13, padding:"0 2px",
-                        opacity:0.7 }}>✏️</button>
-                    <button onClick={()=>bump(v.id, 1)} title="외웠어요"
-                      style={{ background:"none", border:`1px solid ${tint(TYPES.legs.color,0.4)}`, color:TYPES.legs.color,
-                        borderRadius:7, padding:"4px 7px", cursor:"pointer", fontSize:11 }}>✓</button>
-                    <button onClick={()=>remove(v.id)} style={xBtn}>×</button>
                   </div>
                   {editId===v.id && (
                     <VocabEditRow entry={v} onSave={(patch)=>{ saveEdit(v.id, patch); setEditId(null); }}
