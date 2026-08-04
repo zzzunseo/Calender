@@ -628,7 +628,7 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
       const others = distractPool.filter(o=>o.id!==v.id)
         .sort(()=>Math.random()-0.5).slice(0,3);
       const opts = [v, ...others].sort(()=>Math.random()-0.5);
-      return { v, opts, answerId: v.id, cloze: dir==="cloze" ? makeCloze(v.note, v.term) : null };
+      return { v, opts, answerId: v.id, cloze: dir==="cloze" ? makeCloze(stripMarkup(v.note), stripMarkup(v.term)) : null };
     });
     if (autoSpeak) primeSpeech();   // 버튼을 누른 이 시점이 iOS가 허용하는 유일한 타이밍
     setQs(made); setQi(0); setPicked(null); setCorrect(0); setWrongList([]); setStarted(true);
@@ -637,12 +637,13 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
   const cur = qs[qi] || null;
   const done = started && qi >= qs.length;
   // 퀴즈에서는 품사를 숨긴다. 뜻 앞에 붙은 "n. / v." 표기도 답을 좁혀주는 힌트라 함께 지운다.
-  const hidePos = (text)=> String(text||"")
+  // 퀴즈 보기에는 서식이 의미가 없다. 기호가 그대로 노출되지 않게 먼저 걷어낸다.
+  const hidePos = (text)=> stripMarkup(String(text||"").replace(/\s*\n+\s*/g, " / "))
     .replace(/(^|,\s*)(n|v|adj|adv|prep|conj)\.\s*/g, "$1")
     .trim();
   // 보기에 뭘 적을지: 품사 모드는 품사 이름, 단어→뜻은 뜻, 나머지는 단어
-  const label = (o)=> dir==="pos" ? o.label : (dir==="t2m" ? hidePos(o.meaning) : o.term);
-  const question = (v)=> dir==="t2m" ? v.term : hidePos(v.meaning);
+  const label = (o)=> dir==="pos" ? o.label : (dir==="t2m" ? hidePos(o.meaning) : stripMarkup(o.term));
+  const question = (v)=> dir==="t2m" ? stripMarkup(v.term) : hidePos(v.meaning);
 
   // 아직 못 맞힌 문제에서 영어를 읽어주면 답을 흘리는 방향이 있다.
   //  · 단어→뜻 / 품사 맞히기 : 영어 단어가 이미 화면에 있으므로 언제든 재생 가능
@@ -657,14 +658,14 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
     if (!autoSpeak || !started || done) return;
     if (dir !== "t2m" && dir !== "pos") return;
     const q = qs[qi];
-    if (q) speakWord(q.v.term);
+    if (q) speakWord(stripMarkup(q.v.term));
   }, [qi, started, autoSpeak, dir, done, qs]);
 
   // 답을 고른 뒤 정답 발음 (뜻→단어 · 빈칸 모드)
   useEffect(() => {
     if (!autoSpeak || !picked || !cur) return;
     if (dir === "t2m" || dir === "pos") return;
-    speakWord(dir === "cloze" ? (cur.v.note || cur.v.term) : cur.v.term);
+    speakWord(stripMarkup(dir === "cloze" ? (cur.v.note || cur.v.term) : cur.v.term));
   }, [picked, autoSpeak, dir, cur]);
 
   const choose = (opt) => {
@@ -821,7 +822,7 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
 
               {/* 발음 듣기 — 아직 답을 못 고른 상태에서 답이 새는 방향은 버튼을 숨긴다 */}
               {canSpeak && speakable && (
-                <button onClick={()=>speakWord(speakable)} title="발음 듣기"
+                <button onClick={()=>speakWord(stripMarkup(speakable))} title="발음 듣기"
                   style={{ marginTop:2, display:"flex", alignItems:"center", gap:5, cursor:"pointer",
                     background:tint(STUDY_ACCENT,0.12), border:`1px solid ${tint(STUDY_ACCENT,0.35)}`,
                     borderRadius:999, padding:"5px 12px", color:STUDY_ACCENT, fontSize:11, fontWeight:800 }}>
@@ -889,6 +890,127 @@ function VocabQuiz({ vocab, onAnswer, onStar, onClose }) {
 // 저장한 단어를 나중에 고치는 폼.
 // 뜻을 더 붙이거나 품사를 추가할 때 쓰며, 숙련도·별표 같은 학습 기록은 건드리지 않는다.
 
+
+
+// 여러 줄 입력칸.
+// <input>은 태그 구조상 줄바꿈이 아예 불가능해서 <textarea>로 바꿔야 한다.
+// 다만 textarea는 기본 높이가 고정이라 내용이 늘어도 스크롤만 생기므로,
+// 입력할 때마다 scrollHeight로 높이를 맞춰 준다(적어도 2줄, 최대 6줄).
+function AutoArea({ inputRef, value, onChange, placeholder, minRows = 2, maxRows = 6, style }) {
+  const own = useRef(null);
+  const ref = inputRef || own;
+  const fit = (el) => {
+    if (!el) return;
+    const cs = window.getComputedStyle(el);
+    const line = parseFloat(cs.lineHeight) || 19;
+    const pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) + parseFloat(cs.borderTopWidth) * 2;
+    el.style.height = "auto";
+    el.style.height = Math.min(Math.max(el.scrollHeight, line * minRows + pad), line * maxRows + pad) + "px";
+  };
+  useEffect(() => { fit(ref.current); }, [value]);
+  return (
+    <textarea
+      ref={ref} value={value} rows={minRows} placeholder={placeholder}
+      onChange={(e) => { onChange(e.target.value); fit(e.target); }}
+      style={{ ...inp, width:"100%", boxSizing:"border-box", resize:"none", lineHeight:1.55,
+        fontFamily:"inherit", overflowY:"auto", ...style }} />
+  );
+}
+
+// ================= 강조 표기 =================
+// 문법은 "어디가 핵심인지"가 절반이다. 그래서 본문 안에 표시를 남길 수 있게 했다.
+//   *텍스트*  → 강조색 + 굵게
+//   _텍스트_  → 밑줄
+//   !텍스트!  → 주의(빨강)
+// 마크다운을 그대로 쓰지 않고 한 글자 기호만 쓴 이유: 폰에서 치기 쉽고,
+// 문법 노트에 흔한 +, (), ~, / 와 겹치지 않기 때문이다.
+// 실제 입력은 기호를 직접 치는 대신 글자를 선택하고 버튼을 누르면 감싸진다.
+
+const MARK_RE = /(\*[^*\n]+\*|_[^_\n]+_|![^!\n]+!)/g;
+
+// 표시 기호를 걷어낸 순수 텍스트. 퀴즈 보기·검색·읽어주기처럼
+// 서식이 의미 없는 곳에서 기호가 그대로 노출되면 안 되므로 반드시 거쳐야 한다.
+export function stripMarkup(str) {
+  return String(str || "").replace(MARK_RE, (m) => m.slice(1, -1));
+}
+
+export function hasMarkup(str) {
+  MARK_RE.lastIndex = 0;
+  return MARK_RE.test(String(str || ""));
+}
+
+// 표기를 실제 스타일로 바꿔 그린다
+export function Marked({ text, color }) {
+  const t = String(text || "");
+  if (!t) return null;
+  const acc = color || STUDY_ACCENT;
+  const parts = t.split(MARK_RE).filter((x) => x !== "" && x != null);
+  return (
+    <>
+      {parts.map((seg, i) => {
+        if (/^\*[^*\n]+\*$/.test(seg))
+          return <b key={i} style={{ color:acc, fontWeight:800 }}>{seg.slice(1,-1)}</b>;
+        if (/^_[^_\n]+_$/.test(seg))
+          return <u key={i} style={{ textDecorationColor:acc, textUnderlineOffset:3,
+            textDecorationThickness:2 }}>{seg.slice(1,-1)}</u>;
+        if (/^![^!\n]+!$/.test(seg))
+          return <b key={i} style={{ color:C.danger, fontWeight:800 }}>{seg.slice(1,-1)}</b>;
+        return <span key={i}>{seg}</span>;
+      })}
+    </>
+  );
+}
+
+// 선택 영역을 기호로 감싼다. 선택이 없으면 커서 자리에 기호만 넣고 그 사이로 커서를 옮긴다.
+export function wrapSelection(el, mark) {
+  if (!el) return null;
+  const v = el.value || "";
+  const a = el.selectionStart ?? v.length;
+  const b = el.selectionEnd ?? v.length;
+  const picked = v.slice(a, b);
+  // 이미 같은 기호로 감싸져 있으면 해제 (토글)
+  if (picked.length >= 2 && picked[0] === mark && picked[picked.length-1] === mark) {
+    const inner = picked.slice(1, -1);
+    return { value: v.slice(0,a) + inner + v.slice(b), start: a, end: a + inner.length };
+  }
+  const body = picked || "";
+  return {
+    value: v.slice(0,a) + mark + body + mark + v.slice(b),
+    start: a + 1,
+    end: a + 1 + body.length,
+  };
+}
+
+// 강조 버튼 줄
+function MarkBar({ inputRef, value, onChange }) {
+  const apply = (mark) => {
+    const el = inputRef.current;
+    const r = wrapSelection(el, mark);
+    if (!r) return;
+    onChange(r.value);
+    // 상태 반영 후 커서를 감싼 글자 위로 되돌려 놓는다 (안 하면 맨 뒤로 튄다)
+    requestAnimationFrame(() => {
+      try { el.focus(); el.setSelectionRange(r.start, r.end); } catch(e) { /* 무시 */ }
+    });
+  };
+  const btn = (label, mark, style) => (
+    <button onMouseDown={(e)=>e.preventDefault()} onClick={()=>apply(mark)}
+      style={{ flex:1, padding:"6px 0", borderRadius:8, cursor:"pointer", fontSize:11, fontWeight:800,
+        background:C.surface, border:`1px solid ${C.line}`, color:C.muted, ...style }}>{label}</button>
+  );
+  return (
+    <div style={{ display:"flex", gap:5, marginTop:6 }}>
+      {btn("강조", "*", { color:STUDY_ACCENT })}
+      {btn("밑줄", "_", { textDecoration:"underline", textUnderlineOffset:2 })}
+      {btn("주의", "!", { color:C.danger })}
+      <div style={{ flex:1.4, fontSize:9.5, color:C.muted, display:"flex", alignItems:"center",
+        justifyContent:"center", lineHeight:1.3, textAlign:"center" }}>
+        {hasMarkup(value) ? "표시됨" : "글자 선택 후 누르기"}
+      </div>
+    </div>
+  );
+}
+
 // ================= 문법 항목 표시 =================
 // 문법은 단어와 성격이 다르다. 단어는 "term = meaning" 한 쌍이지만,
 // 문법은 제목 + 패턴 여러 줄 + 해당 동사 목록이라 같은 틀에 넣으면 읽기 어렵다.
@@ -912,8 +1034,8 @@ export function splitTermList(term) {
 export function splitTokens(str) {
   const t = String(str || "").trim();
   if (!t) return [];
-  if (/[.?!]\s|[가-힣]{6,}/.test(t) && !/[,/]/.test(t)) return [];   // 서술형 메모는 제외
-  const items = t.split(/[,/·]/).map(x => x.trim()).filter(Boolean);
+  if (/[.?!]\s|[가-힣]{6,}/.test(t) && !/[,/\n]/.test(t)) return [];   // 서술형 메모는 제외
+  const items = t.split(/[,/·\n]/).map(x => x.trim()).filter(Boolean);
   return items.length >= 3 ? items : [];
 }
 
@@ -921,7 +1043,9 @@ export function splitTokens(str) {
 function patternLines(meaning) {
   const t = String(meaning || "").trim();
   if (!t) return [];
-  return t.split(/\s*\/\s*(?=[+SVO가-힣(])/).map(x => x.trim()).filter(Boolean);
+  // 줄바꿈은 사용자가 직접 나눈 것이므로 최우선 구분자로 본다.
+  return t.split(/\n+/).flatMap(seg => seg.split(/\s*\/\s*(?=[+SVO가-힣(])/))
+    .map(x => x.trim()).filter(Boolean);
 }
 
 function GrammarBody({ v }) {
@@ -929,6 +1053,9 @@ function GrammarBody({ v }) {
   const pats = patternLines(v.meaning);
   const verbs = splitTokens(v.note);
   const G = vocabTypeInfo("grammar").color;
+  // 동사가 열몇 개씩 되면 목록만으로 화면이 꽉 찬다. 처음엔 8개만 보여준다.
+  const [openAll, setOpenAll] = useState(false);
+  const shownVerbs = openAll ? verbs : verbs.slice(0, 8);
 
   return (
     <>
@@ -948,7 +1075,9 @@ function GrammarBody({ v }) {
           borderLeft:`3px solid ${tint(G,0.55)}` }}>
           {pats.map((line,i)=>(
             <div key={i} style={{ fontSize:12.5, color:C.text, lineHeight:1.65, fontWeight:600,
-              wordBreak:"break-word", overflowWrap:"anywhere", letterSpacing:-0.1 }}>{line}</div>
+              wordBreak:"break-word", overflowWrap:"anywhere", letterSpacing:-0.1 }}>
+              <Marked text={line} color={G} />
+            </div>
           ))}
         </div>
       )}
@@ -958,22 +1087,31 @@ function GrammarBody({ v }) {
         <div style={{ marginTop:8 }}>
           <div style={{ fontSize:9.5, color:C.muted, fontWeight:700, marginBottom:4 }}>해당 표현 {verbs.length}개</div>
           <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
-            {verbs.map((w,i)=>(
-              <span key={i} style={{ fontSize:11, color:C.muted, background:C.surface2,
-                borderRadius:6, padding:"2px 7px", wordBreak:"break-word" }}>{w}</span>
+            {shownVerbs.map((w,i)=>(
+              <span key={i} style={{ fontSize:11, color: hasMarkup(w)?G:C.muted,
+                background: hasMarkup(w)?tint(G,0.12):C.surface2,
+                borderRadius:6, padding:"2px 7px", wordBreak:"break-word" }}><Marked text={w} color={G} /></span>
             ))}
+            {verbs.length > 8 && (
+              <button onClick={()=>setOpenAll(o=>!o)}
+                style={{ fontSize:11, fontWeight:800, color:G, background:"none",
+                  border:`1px dashed ${tint(G,0.4)}`, borderRadius:6, padding:"2px 8px", cursor:"pointer" }}>
+                {openAll ? "접기" : `+${verbs.length-8}개`}
+              </button>
+            )}
           </div>
         </div>
       ) : (v.note && (
-        <div style={{ fontSize:11.5, color:C.muted, marginTop:7, lineHeight:1.55,
-          wordBreak:"break-word", overflowWrap:"anywhere" }}>{v.note}</div>
+        <div style={{ fontSize:11.5, color:C.muted, marginTop:7, lineHeight:1.55, whiteSpace:"pre-wrap",
+          wordBreak:"break-word", overflowWrap:"anywhere" }}><Marked text={v.note} color={G} /></div>
       ))}
 
       {/* 예문 */}
       {v.ex && (
         <div style={{ marginTop:8, fontSize:11.5, color:C.muted, lineHeight:1.6, fontStyle:"italic",
-          paddingLeft:9, borderLeft:`2px solid ${C.line}`, wordBreak:"break-word", overflowWrap:"anywhere" }}>
-          {v.ex}
+          paddingLeft:9, borderLeft:`2px solid ${C.line}`, whiteSpace:"pre-wrap",
+          wordBreak:"break-word", overflowWrap:"anywhere" }}>
+          <Marked text={v.ex} color={G} />
         </div>
       )}
     </>
@@ -989,13 +1127,16 @@ function VocabEditRow({ entry, onSave, onCancel }) {
     ex: entry.ex || "",
     tag: entry.tag || "",
   });
+  const eMeaning = useRef(null);
+  const eNote = useRef(null);
   return (
     <div style={{ marginTop:9, padding:"12px", background:C.surface2, borderRadius:11 }}>
       <input value={v.term} onChange={(e)=>setV({...v, term:e.target.value})}
         placeholder="단어" style={{...inp, width:"100%", boxSizing:"border-box"}} />
-      <input value={v.meaning} onChange={(e)=>setV({...v, meaning:e.target.value})}
-        placeholder={entry.type==="grammar"?"패턴 (여러 개면 / 로 구분)":"뜻 (여러 개면 쉼표로: 주소, 다루다)"}
-        style={{...inp, width:"100%", boxSizing:"border-box", marginTop:6}} />
+      <AutoArea inputRef={eMeaning} value={v.meaning} onChange={(val)=>setV({...v, meaning:val})}
+        placeholder={entry.type==="grammar"?"패턴 — 줄바꿈이나 / 로 여러 개":"뜻 (여러 개면 쉼표로: 주소, 다루다)"}
+        style={{ marginTop:6 }} />
+      <MarkBar inputRef={eMeaning} value={v.meaning} onChange={(val)=>setV({...v, meaning:val})} />
       {entry.type!=="grammar" && (<>
         <div style={{ fontSize:10, color:C.muted, margin:"9px 0 5px" }}>품사 (여러 개 선택 가능)</div>
         <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
@@ -1005,11 +1146,12 @@ function VocabEditRow({ entry, onSave, onCancel }) {
           ))}
         </div>
       </>)}
-      <input value={v.note} onChange={(e)=>setV({...v, note:e.target.value})}
-        placeholder={entry.type==="grammar"?"해당 동사·표현 (쉼표나 / 로 구분)":"메모 (선택)"}
-        style={{...inp, width:"100%", boxSizing:"border-box", marginTop:8}} />
-      <input value={v.ex} onChange={(e)=>setV({...v, ex:e.target.value})}
-        placeholder="예문 (선택)" style={{...inp, width:"100%", boxSizing:"border-box", marginTop:6}} />
+      <AutoArea inputRef={eNote} value={v.note} onChange={(val)=>setV({...v, note:val})}
+        placeholder={entry.type==="grammar"?"해당 동사·표현 (쉼표·/·줄바꿈으로 구분)":"메모 (선택)"}
+        style={{ marginTop:8 }} />
+      <MarkBar inputRef={eNote} value={v.note} onChange={(val)=>setV({...v, note:val})} />
+      <AutoArea value={v.ex} onChange={(val)=>setV({...v, ex:val})}
+        placeholder="예문 (선택)" style={{ marginTop:6 }} />
       <input value={v.tag} onChange={(e)=>setV({...v, tag:e.target.value})}
         placeholder="섹션·태그 (선택)" style={{...inp, width:"100%", boxSizing:"border-box", marginTop:6}} />
       <div style={{ display:"flex", gap:7, marginTop:10 }}>
@@ -1308,6 +1450,8 @@ function StudyVocab({ data, mutate, apiKey }) {
   const [addOpen, setAddOpen] = useState(false);
   const [reviewOn, setReviewOn] = useState(false);
   const [draft, setDraft] = useState({ type:"word", term:"", meaning:"", note:"", ex:"", tag:"", pos:"" });
+  const meaningRef = useRef(null);
+  const noteRef = useRef(null);
   const [filterMode, setFilterMode] = useState("all"); // all | star | weak | wrong
   const [tagFilter, setTagFilter] = useState("");      // 교재 섹션(태그)으로 좁혀 보기
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -1353,7 +1497,7 @@ function StudyVocab({ data, mutate, apiKey }) {
 
   const byTab = tab==="all" ? vocab : vocab.filter(v=>v.type===tab);
   const searched = q.trim()
-    ? byTab.filter(v=> (v.term+v.meaning+(v.note||"")+(v.tag||"")).toLowerCase().includes(q.trim().toLowerCase()))
+    ? byTab.filter(v=> stripMarkup(v.term+v.meaning+(v.note||"")+(v.ex||"")+(v.tag||"")).toLowerCase().includes(q.trim().toLowerCase()))
     : byTab;
   const applyFilter = (list) =>
     filterMode==="star"  ? list.filter(v=>v.starred) :
@@ -1363,6 +1507,16 @@ function StudyVocab({ data, mutate, apiKey }) {
   const applyTag = (list)=> tagFilter ? list.filter(v=>String(v.tag||"").trim()===tagFilter) : list;
   const listed = applyTag(applyFilter(searched)).slice()
     .sort((a,b)=> (b.starred?1:0)-(a.starred?1:0) || reviewScore(b)-reviewScore(a));
+
+  // 교재 섹션 단위로 공부하는 흐름에 맞춰, 태그별로 묶어 볼 수 있게 한다.
+  // 섹션 이름 앞의 숫자를 뽑아 자연 순서로 정렬해야 Section 2가 Section 10보다 앞에 온다.
+  const [grouped, setGrouped] = useState(false);
+  const secNum = (t) => { const m = String(t||"").match(/\d+/); return m ? Number(m[0]) : 9999; };
+  const groupsOf = (rows) => {
+    const map = new Map();
+    rows.forEach((v)=>{ const k = (v.tag||"").trim(); if(!map.has(k)) map.set(k, []); map.get(k).push(v); });
+    return [...map.entries()].sort((a,b)=> secNum(a[0])-secNum(b[0]) || String(a[0]).localeCompare(String(b[0])));
+  };
   const starCount = vocab.filter(v=>v.starred).length;
   const wrongCount = vocab.filter(isOftenWrong).length;
   const polyCount = vocab.filter(isPolysemous).length;
@@ -1531,7 +1685,9 @@ function StudyVocab({ data, mutate, apiKey }) {
             </div>
             {revealed ? (<>
               <div style={{ height:1, width:44, background:C.line }} />
-              <div style={{ fontSize:15, color:STUDY_ACCENT, fontWeight:700, lineHeight:1.5 }}>{cur.meaning||"(뜻 없음)"}</div>
+              <div style={{ fontSize:15, color:STUDY_ACCENT, fontWeight:700, lineHeight:1.6, whiteSpace:"pre-wrap" }}>
+                {cur.meaning ? <Marked text={cur.meaning} /> : "(뜻 없음)"}
+              </div>
               {cur.note && <div style={{ fontSize:11.5, color:C.muted, lineHeight:1.55 }}>{cur.note}</div>}
             </>) : (
               <div style={{ fontSize:11.5, color:C.muted }}>탭해서 뜻 보기</div>
@@ -1610,9 +1766,11 @@ function StudyVocab({ data, mutate, apiKey }) {
             <input value={draft.term} onChange={(e)=>setDraft({...draft, term:e.target.value})}
               placeholder={draft.type==="word"?"단어 (예: comprehensive)":draft.type==="idiom"?"숙어 (예: in charge of)":"문법 포인트 (예: Only + 부사 도치)"}
               style={{...inp, width:"100%", boxSizing:"border-box", marginTop:8}} />
-            <input value={draft.meaning} onChange={(e)=>setDraft({...draft, meaning:e.target.value})}
-              placeholder={draft.type==="grammar"?"패턴 (여러 개면 / 로 구분: + 목 + 형 / S + V + 명)":"뜻"}
-              style={{...inp, width:"100%", boxSizing:"border-box", marginTop:6}} />
+            <AutoArea inputRef={meaningRef} value={draft.meaning} onChange={(val)=>setDraft({...draft, meaning:val})}
+              placeholder={draft.type==="grammar"?"패턴 — 줄바꿈이나 / 로 여러 개\n예) + 목 + 형\n     S + V + 명":"뜻"}
+              style={{ marginTop:6 }} />
+            <MarkBar inputRef={meaningRef} value={draft.meaning}
+              onChange={(val)=>setDraft({...draft, meaning:val})} />
             {draft.type!=="grammar" && (
               <div style={{ display:"flex", gap:4, marginTop:7, flexWrap:"wrap" }}>
                 {POS_LIST.map((pp)=>(
@@ -1621,18 +1779,19 @@ function StudyVocab({ data, mutate, apiKey }) {
                 ))}
               </div>
             )}
-            <input value={draft.note} onChange={(e)=>setDraft({...draft, note:e.target.value})}
-              placeholder={draft.type==="grammar"?"해당 동사·표현 (쉼표나 / 로 구분)":"메모 (선택)"}
-              style={{...inp, width:"100%", boxSizing:"border-box", marginTop:6}} />
-            <input value={draft.ex} onChange={(e)=>setDraft({...draft, ex:e.target.value})}
-              placeholder="예문 (선택)" style={{...inp, width:"100%", boxSizing:"border-box", marginTop:6}} />
+            <AutoArea inputRef={noteRef} value={draft.note} onChange={(val)=>setDraft({...draft, note:val})}
+              placeholder={draft.type==="grammar"?"해당 동사·표현 (쉼표·/·줄바꿈으로 구분)":"메모 (선택)"}
+              style={{ marginTop:8 }} />
+            <MarkBar inputRef={noteRef} value={draft.note}
+              onChange={(val)=>setDraft({...draft, note:val})} />
+            <AutoArea value={draft.ex} onChange={(val)=>setDraft({...draft, ex:val})}
+              placeholder="예문 (선택)" style={{ marginTop:6 }} />
             <input value={draft.tag} onChange={(e)=>setDraft({...draft, tag:e.target.value})}
               placeholder="섹션·태그 (선택 · 예: Section 10 도치)" style={{...inp, width:"100%", boxSizing:"border-box", marginTop:6}} />
-            {draft.type==="grammar" && (
-              <div style={{ fontSize:10, color:C.muted, marginTop:7, lineHeight:1.6 }}>
-                제목 끝 괄호에 목록을 적으면 따로 떼어 보여줘요 — 2형식 동사(be, become, seem)
-              </div>
-            )}
+            <div style={{ fontSize:10, color:C.muted, marginTop:8, lineHeight:1.65 }}>
+              {draft.type==="grammar" && <>제목 끝 괄호에 목록을 적으면 따로 떼어 보여줘요 — 2형식 동사(be, become, seem)<br/></>}
+              중요한 부분은 글자를 선택하고 <b style={{color:STUDY_ACCENT}}>강조</b>·<b style={{textDecoration:"underline"}}>밑줄</b>·<b style={{color:C.danger}}>주의</b> 버튼을 누르세요
+            </div>
             <button onClick={add} disabled={!draft.term.trim()}
               style={{...primary(STUDY_ACCENT), width:"100%", marginTop:9, opacity:draft.term.trim()?1:0.45}}>추가</button>
             {dupMsg && (
@@ -1648,8 +1807,18 @@ function StudyVocab({ data, mutate, apiKey }) {
                 style={{...chip(tab===k, k==="all"?STUDY_ACCENT:vocabTypeInfo(k).color), padding:"5px 11px", fontSize:11.5, whiteSpace:"nowrap", flexShrink:0}}>{label}</button>
             ))}
           </div>
-          <input value={q} onChange={(e)=>setQ(e.target.value)} placeholder="검색"
-            style={{...inp, width:"100%", boxSizing:"border-box", marginTop:8}} />
+          <div style={{ display:"flex", gap:6, marginTop:8 }}>
+            <input value={q} onChange={(e)=>setQ(e.target.value)} placeholder="검색"
+              style={{...inp, flex:1, minWidth:0, boxSizing:"border-box"}} />
+            {/* 교재 섹션 단위로 훑을 때를 위한 묶어보기 */}
+            <button onClick={()=>setGrouped(g=>!g)} title="섹션별로 묶어 보기"
+              style={{ flexShrink:0, padding:"0 12px", borderRadius:9, cursor:"pointer", fontSize:11.5, fontWeight:800,
+                border:`1.5px solid ${grouped?STUDY_ACCENT:C.line}`,
+                background: grouped?tint(STUDY_ACCENT,0.15):C.surface2,
+                color: grouped?STUDY_ACCENT:C.muted }}>
+              {grouped?"묶음 ✓":"섹션별"}
+            </button>
+          </div>
           <div style={{ display:"flex", gap:5, marginTop:8, overflowX:"auto" }}>
             {[["all","전체",STUDY_ACCENT,vocab.length],
               ["star","⭐ 별표","#FFD24B",starCount],
@@ -1677,7 +1846,16 @@ function StudyVocab({ data, mutate, apiKey }) {
           <div style={{ marginTop:11 }}>
             {listed.length===0 ? (
               <div style={{ fontSize:12, color:C.muted, padding:"12px 0", textAlign:"center" }}>해당하는 항목이 없어요</div>
-            ) : listed.slice(0,60).map((v)=>{
+            ) : (grouped ? groupsOf(listed.slice(0,60)) : [["", listed.slice(0,60)]]).map(([sec, rows])=>(
+              <div key={sec||"__all"}>
+                {grouped && (
+                  <div style={{ display:"flex", alignItems:"center", gap:8, margin:"14px 0 2px",
+                    paddingBottom:5, borderBottom:`2px solid ${tint(STUDY_ACCENT,0.3)}` }}>
+                    <span style={{ fontSize:12, fontWeight:800, color:STUDY_ACCENT }}>{sec || "섹션 없음"}</span>
+                    <span style={{ fontSize:10.5, color:C.muted }}>{rows.length}개</span>
+                  </div>
+                )}
+                {rows.map((v)=>{
               const ti = vocabTypeInfo(v.type);
               const lv = num(v.level);
               const isG = v.type === "grammar";
@@ -1686,7 +1864,7 @@ function StudyVocab({ data, mutate, apiKey }) {
                   <div style={{ minWidth:0 }}>
                     <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
                       <span style={{ fontSize: isG?14:13.5, fontWeight:800, wordBreak:"break-word" }}>
-                        {isG ? splitTermList(v.term).head : v.term}
+                        <Marked text={isG ? splitTermList(v.term).head : v.term} />
                       </span>
                       <span style={{ fontSize:9.5, fontWeight:800, color:ti.color, background:tint(ti.color,0.14),
                         borderRadius:999, padding:"1px 7px" }}>{ti.label}</span>
@@ -1698,7 +1876,7 @@ function StudyVocab({ data, mutate, apiKey }) {
                       {isDueToday(v) && <span style={{ fontSize:9, fontWeight:800, color:STUDY_ACCENT,
                         background:tint(STUDY_ACCENT,0.14), borderRadius:999, padding:"1px 6px" }}>오늘</span>}
                       {v.type!=="grammar" && (
-                        <button onClick={(e)=>{ e.stopPropagation(); speakWord(v.term); }} title="발음"
+                        <button onClick={(e)=>{ e.stopPropagation(); speakWord(stripMarkup(v.term)); }} title="발음"
                           style={{ background:"none", border:"none", cursor:"pointer", fontSize:12, padding:0, opacity:0.55 }}>🔊</button>
                       )}
                       {isPolysemous(v) && !isG && (
@@ -1711,12 +1889,13 @@ function StudyVocab({ data, mutate, apiKey }) {
                         background:tint(C.danger,0.13), borderRadius:999, padding:"1px 6px" }}>{num(v.wrong)}번 틀림</span>}
                     </div>
                     {isG ? <div style={{ marginTop:8 }}><GrammarBody v={v} /></div> : (<>
-                      {v.meaning && <div style={{ fontSize:12, color:C.muted, marginTop:3, lineHeight:1.5,
-                        wordBreak:"break-word", overflowWrap:"anywhere" }}>{v.meaning}</div>}
-                      {v.note && <div style={{ fontSize:11, color:C.muted, marginTop:2, opacity:0.8, lineHeight:1.5,
-                        wordBreak:"break-word", overflowWrap:"anywhere" }}>{v.note}</div>}
+                      {v.meaning && <div style={{ fontSize:12, color:C.muted, marginTop:3, lineHeight:1.55,
+                        whiteSpace:"pre-wrap", wordBreak:"break-word", overflowWrap:"anywhere" }}><Marked text={v.meaning} /></div>}
+                      {v.note && <div style={{ fontSize:11, color:C.muted, marginTop:3, opacity:0.8, lineHeight:1.55,
+                        whiteSpace:"pre-wrap", wordBreak:"break-word", overflowWrap:"anywhere" }}><Marked text={v.note} /></div>}
                       {v.ex && <div style={{ fontSize:11, color:C.muted, marginTop:5, lineHeight:1.55, fontStyle:"italic",
-                        paddingLeft:9, borderLeft:`2px solid ${C.line}`, wordBreak:"break-word", overflowWrap:"anywhere" }}>{v.ex}</div>}
+                        paddingLeft:9, borderLeft:`2px solid ${C.line}`, whiteSpace:"pre-wrap",
+                        wordBreak:"break-word", overflowWrap:"anywhere" }}><Marked text={v.ex} /></div>}
                     </>)}
                     {/* 태그·숙련도와 버튼을 한 줄에 둔다. 세로로 쌓인 버튼 기둥이
                         본문 폭을 좁혀서 긴 문법 내용이 더 답답해 보였다. */}
@@ -1748,7 +1927,9 @@ function StudyVocab({ data, mutate, apiKey }) {
                   )}
                 </div>
               );
-            })}
+                })}
+              </div>
+            ))}
           </div>
           {listed.length>60 && (
             <div style={{ fontSize:10.5, color:C.muted, marginTop:9, textAlign:"center" }}>
