@@ -127,6 +127,167 @@ if (typeof window !== "undefined" && window.speechSynthesis) {
   window.speechSynthesis.addEventListener?.("voiceschanged", loadVoices);
 }
 
+
+// ================= 강조 표기 =================
+// 문법은 "어디가 핵심인지"가 절반이다. 그래서 본문 안에 표시를 남길 수 있게 했다.
+//   *텍스트*  → 강조색 + 굵게
+//   _텍스트_  → 밑줄
+//   !텍스트!  → 주의(빨강)
+// 마크다운을 그대로 쓰지 않고 한 글자 기호만 쓴 이유: 폰에서 치기 쉽고,
+// 문법 노트에 흔한 +, (), ~, / 와 겹치지 않기 때문이다.
+// 실제 입력은 기호를 직접 치는 대신 글자를 선택하고 버튼을 누르면 감싸진다.
+
+const MARK_RE = /(\*[^*\n]+\*|_[^_\n]+_|![^!\n]+!)/g;
+
+// 표시 기호를 걷어낸 순수 텍스트. 퀴즈 보기·검색·읽어주기처럼
+// 서식이 의미 없는 곳에서 기호가 그대로 노출되면 안 되므로 반드시 거쳐야 한다.
+export function stripMarkup(str) {
+  return String(str || "").replace(MARK_RE, (m) => m.slice(1, -1));
+}
+
+export function hasMarkup(str) {
+  MARK_RE.lastIndex = 0;
+  return MARK_RE.test(String(str || ""));
+}
+
+// 표기를 실제 스타일로 바꿔 그린다
+export function Marked({ text, color }) {
+  const t = String(text || "");
+  if (!t) return null;
+  const acc = color || STUDY_ACCENT;
+  const parts = t.split(MARK_RE).filter((x) => x !== "" && x != null);
+  return (
+    <>
+      {parts.map((seg, i) => {
+        if (/^\*[^*\n]+\*$/.test(seg))
+          return <b key={i} style={{ color:acc, fontWeight:800 }}>{seg.slice(1,-1)}</b>;
+        if (/^_[^_\n]+_$/.test(seg))
+          return <u key={i} style={{ textDecorationColor:acc, textUnderlineOffset:3,
+            textDecorationThickness:2 }}>{seg.slice(1,-1)}</u>;
+        if (/^![^!\n]+!$/.test(seg))
+          return <b key={i} style={{ color:C.danger, fontWeight:800 }}>{seg.slice(1,-1)}</b>;
+        return <span key={i}>{seg}</span>;
+      })}
+    </>
+  );
+}
+
+// 선택 영역을 기호로 감싼다. 선택이 없으면 커서 자리에 기호만 넣고 그 사이로 커서를 옮긴다.
+export function wrapSelection(el, mark) {
+  if (!el) return null;
+  const v = el.value || "";
+  const a = el.selectionStart ?? v.length;
+  const b = el.selectionEnd ?? v.length;
+  const picked = v.slice(a, b);
+  // 이미 같은 기호로 감싸져 있으면 해제 (토글)
+  if (picked.length >= 2 && picked[0] === mark && picked[picked.length-1] === mark) {
+    const inner = picked.slice(1, -1);
+    return { value: v.slice(0,a) + inner + v.slice(b), start: a, end: a + inner.length };
+  }
+  const body = picked || "";
+  return {
+    value: v.slice(0,a) + mark + body + mark + v.slice(b),
+    start: a + 1,
+    end: a + 1 + body.length,
+  };
+}
+
+
+// "2형식 동사(be,become,seem,remain,stay,appear)" 처럼
+// 제목 끝 괄호에 목록을 함께 적는 입력 습관을 살려, 제목과 목록을 분리해 보여준다.
+// 다만 "허(락)기(대)장(려)" 같은 암기용 표기까지 쪼개면 안 되므로
+// "끝에 붙은 괄호 하나 + 안에 구분자로 나뉜 항목 2개 이상"일 때만 분리한다.
+export function splitTermList(term) {
+  const t = String(term || "").trim();
+  const m = t.match(/^([^()]+)\(([^()]+)\)$/);
+  if (!m) return { head: t, items: [] };
+  const items = m[2].split(/[,/·]/).map(x => x.trim()).filter(Boolean);
+  if (items.length < 2) return { head: t, items: [] };
+  return { head: m[1].trim(), items };
+}
+
+
+// ================= 순서대로 읽어주기 =================
+// 화면을 안 보고 듣기만 하려면 "영어 → 한글 뜻 → 다음 단어"로 이어서 재생돼야 한다.
+// speakWord는 한 번에 하나만 읽고 끝을 알려주지 않아서, 끝나는 시점을 받아 다음으로
+// 넘기는 재생기를 따로 뒀다.
+//
+// 언어를 항목마다 지정하는 게 핵심이다. 한글 뜻을 영어 음성으로 읽히면 못 알아들으므로
+// 영어는 en-US, 뜻은 ko-KR 음성을 각각 골라 쓴다.
+
+export function makeSpeaker() {
+  let stopped = false;
+  let timer = null;
+  let wake = null;   // 대기 중인 promise를 깨우는 함수
+
+  // 항목 사이 간격을 기다리는 도중에 멈추면, 타이머만 지워서는 대기가 영영 안 풀린다.
+  // 재생 루프가 그 자리에 매달려 끝나지 않으므로 대기도 함께 깨워 줘야 한다.
+  const clear = () => {
+    if (timer) { clearTimeout(timer); timer = null; }
+    if (wake) { const w = wake; wake = null; w(); }
+  };
+
+  const say = (text, lang, rate) => new Promise((resolve) => {
+    const synth = window.speechSynthesis;
+    const str = String(text || "").trim();
+    if (!synth || !str) { resolve(); return; }
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    try {
+      const u = new SpeechSynthesisUtterance(str);
+      u.lang = lang; u.rate = rate;
+      const v = pickVoice(lang);
+      if (v) u.voice = v;
+      u.onend = finish;
+      u.onerror = finish;
+      synth.speak(u);
+      setTimeout(()=>{ try { if (synth.paused) synth.resume(); } catch(e) { /* 무시 */ } }, 60);
+      // 안전장치: onend가 안 오는 브라우저가 있어 글자 수 기준으로 최대 대기시간을 둔다.
+      // 이게 없으면 재생이 한 항목에서 영영 멈춰버린다.
+      setTimeout(finish, Math.min(20000, 1800 + str.length * 130 / Math.max(0.5, rate)));
+    } catch(e) { finish(); }
+  });
+
+  const wait = (ms) => new Promise((r)=>{
+    wake = r;
+    timer = setTimeout(()=>{ wake = null; timer = null; r(); }, ms);
+  });
+
+  return {
+    // steps: [{ text, lang }] — 한 항목이 여러 단계(단어→뜻)로 이뤄진다
+    async play(steps, { rate = 0.95, gap = 350 } = {}) {
+      for (const st of steps) {
+        if (stopped) return false;
+        await say(st.text, st.lang || "en-US", rate);
+        if (stopped) return false;
+        await wait(gap);
+      }
+      return !stopped;
+    },
+    stop() {
+      stopped = true;
+      clear();
+      try { window.speechSynthesis.cancel(); } catch(e) { /* 무시 */ }
+    },
+    get dead() { return stopped; },
+  };
+}
+
+// 언어에 맞는 음성 고르기 (speakWord와 같은 규칙)
+function pickVoice(lang) {
+  loadVoicesPublic();
+  const want = String(lang || "en-US").slice(0,2).toLowerCase();
+  return _voices.find(v=>v.lang && v.lang.toLowerCase().replace("_","-") === String(lang).toLowerCase())
+    || _voices.find(v=>v.lang && v.lang.toLowerCase().replace("_","-").startsWith(want))
+    || null;
+}
+function loadVoicesPublic() {
+  try { const v = window.speechSynthesis.getVoices() || []; if (v.length) _voices = v; } catch(e) { /* 무시 */ }
+}
+
+// 한국어 음성이 아예 없는 기기도 있어서, 뜻 읽어주기를 켤지 판단할 때 쓴다
+export const hasKoreanVoice = () => { loadVoicesPublic(); return _voices.some(v=>/^ko/i.test(v.lang||"")); };
+
 export const speechReady = () => {
   try { return !!(window.speechSynthesis && window.SpeechSynthesisUtterance); } catch(e) { return false; }
 };
@@ -997,3 +1158,107 @@ export const sheet = { background:C.surface, width:"100%", maxWidth:460, borderT
   minHeight:"55dvh", maxHeight:"92dvh", display:"flex", flexDirection:"column", boxSizing:"border-box" };
 
 export const grip = { width:38, height:4, borderRadius:2, background:C.line, margin:"0 auto 16px" };
+
+// ================= 듣기 모드 화면 =================
+// 걷거나 이동할 때 화면을 안 보고 듣기만 하는 용도.
+// 항목마다 "영어(en-US) → 뜻(ko-KR)"을 순서대로 읽고 자동으로 다음으로 넘어간다.
+export function ListenPlayer({ rows, accent, onClose, getSteps, renderItem }) {
+  const [idx, setIdx] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [rate, setRate] = useState(0.95);
+  const [withMeaning, setWithMeaning] = useState(true);
+  const [loop, setLoop] = useState(true);
+  const spk = useRef(null);
+  const idxRef = useRef(0);
+  const acc = accent || "#8FD3FF";
+
+  useEffect(()=>{ idxRef.current = idx; }, [idx]);
+
+  const stop = () => {
+    if (spk.current) { spk.current.stop(); spk.current = null; }
+    setPlaying(false);
+  };
+  // 화면을 벗어나면 반드시 멈춘다. 안 그러면 다른 탭으로 가도 계속 읽는다.
+  useEffect(()=>()=>stop(), []);
+
+  const run = async (from) => {
+    stop();
+    const me = makeSpeaker();
+    spk.current = me;
+    setPlaying(true);
+    let i = from;
+    while (!me.dead) {
+      if (i >= rows.length) {
+        if (!loop) break;
+        i = 0;
+      }
+      setIdx(i);
+      const ok = await me.play(getSteps(rows[i], withMeaning), { rate });
+      if (!ok) return;
+      i += 1;
+    }
+    if (spk.current === me) { spk.current = null; setPlaying(false); }
+  };
+
+  const jump = (d) => {
+    const n = ((idxRef.current + d) % rows.length + rows.length) % rows.length;
+    setIdx(n);
+    if (playing) run(n); else setIdx(n);
+  };
+
+  const cur = rows[Math.min(idx, rows.length-1)];
+  if (!cur) return null;
+
+  return (
+    <div style={{ marginTop:11, padding:"14px", borderRadius:13, background:C.surface2,
+      border:`1px solid ${tint(acc,0.4)}` }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+        <span style={{ fontSize:11.5, fontWeight:800, color:acc }}>🎧 듣기 모드</span>
+        <div style={{ flex:1 }} />
+        <span style={{ fontSize:11, color:C.muted, fontWeight:700 }}>{idx+1} / {rows.length}</span>
+        <button onClick={()=>{ stop(); onClose(); }} style={{ background:"none", border:"none",
+          color:C.muted, fontSize:15, cursor:"pointer", padding:"0 2px", lineHeight:1 }}>×</button>
+      </div>
+
+      <div style={{ height:3, background:C.surface, borderRadius:99, overflow:"hidden", marginBottom:12 }}>
+        <div style={{ width:`${((idx+1)/rows.length)*100}%`, height:"100%", background:acc, transition:"width .25s" }} />
+      </div>
+
+      <div style={{ minHeight:64, display:"flex", flexDirection:"column", justifyContent:"center", gap:6 }}>
+        {renderItem(cur)}
+      </div>
+
+      <div style={{ display:"flex", gap:7, marginTop:13 }}>
+        <button onClick={()=>jump(-1)} style={{...ghost, flex:1, fontSize:16, padding:"11px 0"}}>⏮</button>
+        <button onClick={()=> playing ? stop() : run(idx)}
+          style={{...primary(acc), flex:2, fontSize:14, padding:"11px 0"}}>
+          {playing ? "⏸ 일시정지" : "▶ 재생"}
+        </button>
+        <button onClick={()=>jump(1)} style={{...ghost, flex:1, fontSize:16, padding:"11px 0"}}>⏭</button>
+      </div>
+
+      <div style={{ display:"flex", gap:6, marginTop:9, flexWrap:"wrap" }}>
+        <button onClick={()=>setWithMeaning(v=>!v)}
+          style={{...chip(withMeaning, acc), padding:"5px 10px", fontSize:11}}>
+          뜻도 읽기 {withMeaning?"✓":""}
+        </button>
+        <button onClick={()=>setLoop(v=>!v)}
+          style={{...chip(loop, acc), padding:"5px 10px", fontSize:11}}>
+          반복 {loop?"✓":""}
+        </button>
+        {[0.75, 0.95, 1.2].map(r=>(
+          <button key={r} onClick={()=>{ setRate(r); if (playing) { setTimeout(()=>run(idxRef.current), 0); } }}
+            style={{...chip(Math.abs(rate-r)<0.01, acc), padding:"5px 10px", fontSize:11}}>
+            {r}x
+          </button>
+        ))}
+      </div>
+
+      <div style={{ fontSize:10, color:C.muted, marginTop:9, lineHeight:1.5 }}>
+        화면을 꺼도 소리는 이어지지만, 브라우저가 절전으로 들어가면 멈출 수 있어요.
+        {!hasKoreanVoice() && " 이 기기에 한국어 음성이 없어 뜻이 어색하게 읽힐 수 있어요."}
+      </div>
+    </div>
+  );
+}
+
