@@ -1,5 +1,85 @@
 import { useState, useEffect, useRef } from "react";
-import { TYPES, partBreakdown, CARDIO, WEEKDAYS, vocabTypeInfo, posInfo, REVIEW_GAP, dueList, speakWord, STUDY_ACCENT, SLEEP_ACCENT, MOODS, C, keyOf, todayKey, uid, extraWater, tint, num, show1, fmtMin, last7, lastNDays, didWorkout, emptyDay, stepsToKcal, burnedKcal, MACRO_GOALS, rd1, macroTargets, planDate, QuickWorkoutBlock, CONDITION_LABELS, SleepBlock, FoodSection, LineChart, Bars7, Card, GlassCard, useCountUp, Row, MiniCard, Collapsible, ConfirmX, lbl, inp, primary, ghost, stepBtn, chip, cardioInfo, posList } from "../shared.jsx";
+import { TYPES, partBreakdown, CARDIO, WEEKDAYS, vocabTypeInfo, posInfo, REVIEW_GAP, dueList, speakWord, speechReady, primeSpeech, ListenPlayer, stripMarkup, splitTermList, STUDY_ACCENT, SLEEP_ACCENT, MOODS, C, keyOf, todayKey, uid, extraWater, tint, num, show1, fmtMin, last7, lastNDays, didWorkout, emptyDay, stepsToKcal, burnedKcal, MACRO_GOALS, rd1, macroTargets, planDate, QuickWorkoutBlock, CONDITION_LABELS, SleepBlock, FoodSection, LineChart, Bars7, Card, GlassCard, useCountUp, Row, MiniCard, Collapsible, ConfirmX, lbl, inp, primary, ghost, stepBtn, chip, cardioInfo, posList } from "../shared.jsx";
+
+
+// ================= 오늘의 복습 =================
+// 복습할 단어가 몇 개인지 알려면 공부 탭까지 들어가야 했다.
+// 앱을 열면 바로 보이는 오늘 탭에 한 줄만 있어도 빠뜨리는 일이 크게 준다.
+function ReviewCard({ vocab, goToTab }) {
+  const [listenOn, setListenOn] = useState(false);
+  const due = dueList(vocab || []);
+  if (!due.length) return null;
+
+  const byType = {};
+  due.forEach((v)=>{ const k = v.type || "word"; byType[k] = (byType[k]||0)+1; });
+
+  return (
+    <Card>
+      <Row>
+        <span style={lbl}>📖 오늘의 복습</span>
+        <span style={{ fontSize:11.5, color:C.muted }}>
+          {Object.keys(byType).map(k=>`${vocabTypeInfo(k).label} ${byType[k]}`).join(" · ")}
+        </span>
+      </Row>
+
+      <div style={{ display:"flex", alignItems:"baseline", gap:8, marginTop:10 }}>
+        <span style={{ fontSize:28, fontWeight:800, color:STUDY_ACCENT, letterSpacing:-1 }}>{due.length}</span>
+        <span style={{ fontSize:12.5, color:C.muted }}>개가 복습할 때가 됐어요</span>
+      </div>
+
+      {listenOn ? (
+        <ListenPlayer rows={due} accent="#8FD3FF" onClose={()=>setListenOn(false)}
+          getSteps={reviewSteps} renderItem={reviewView} />
+      ) : (
+        <div style={{ display:"flex", gap:7, marginTop:12 }}>
+          <button onClick={()=>goToTab("study")} style={{...primary(STUDY_ACCENT), flex:1, fontSize:13}}>
+            복습하러 가기
+          </button>
+          {speechReady() && (
+            <button onClick={()=>{ primeSpeech(); setListenOn(true); }}
+              style={{ flex:1, padding:"12px 0", borderRadius:11, cursor:"pointer",
+                background:tint("#8FD3FF",0.12), border:`1px solid ${tint("#8FD3FF",0.4)}`,
+                color:"#8FD3FF", fontSize:13, fontWeight:800 }}>
+              🎧 듣기
+            </button>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// 듣기 재생 순서 — 영어는 영어 음성, 뜻은 한국어 음성으로 나눠 읽는다.
+// 한 목소리로 다 읽으면 한글 뜻이 알아들을 수 없게 나온다.
+const reviewSteps = (v, withMeaning) => {
+  const isG = v.type === "grammar";
+  const head = stripMarkup(isG ? splitTermList(v.term).head : v.term);
+  const steps = [{ text: head, lang: isG ? "ko-KR" : "en-US" }];
+  if (!isG) steps.push({ text: head, lang: "en-US" });
+  if (withMeaning && v.meaning) {
+    steps.push({ text: stripMarkup(v.meaning).replace(/\s*\n+\s*/g, ", "), lang: "ko-KR" });
+  }
+  return steps;
+};
+
+const reviewView = (v) => {
+  const ti = vocabTypeInfo(v.type);
+  const isG = v.type === "grammar";
+  return (
+    <>
+      <div style={{ fontSize:10.5, fontWeight:800, color:ti.color }}>
+        {ti.icon} {ti.label}{v.tag ? ` · ${v.tag}` : ""}
+      </div>
+      <div style={{ fontSize:19, fontWeight:800, lineHeight:1.4, wordBreak:"break-word" }}>
+        {stripMarkup(isG ? splitTermList(v.term).head : v.term)}
+      </div>
+      {v.meaning && (
+        <div style={{ fontSize:13.5, color:STUDY_ACCENT, fontWeight:700, lineHeight:1.6,
+          whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{stripMarkup(v.meaning)}</div>
+      )}
+    </>
+  );
+};
 
 export default function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps, apiKey, customFoods, mutate, goToTab }) {
   const k = todayKey();
@@ -176,6 +256,8 @@ export default function Today({ data, updateDay, addFoodsToday, target, tdee, we
       <GlassCard glow={dayScore>=80?"#7DDB8A":dayScore>=50?"#8FD3FF":dayScore>=1?"#FFC24B":null}>
         <Mascot score={dayScore} proteinPct={proteinPct} workedOut={didWorkout(day)} />
       </GlassCard>
+
+      <ReviewCard vocab={data.vocab} goToTab={goToTab} />
 
       {/* 오늘 계획 */}
       {todayPlans.length>0 && (

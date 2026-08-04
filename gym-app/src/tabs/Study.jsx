@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { TYPES, VOCAB_TYPES, vocabTypeInfo, POS_LIST, posInfo, MASTER_LEVEL, isMastered, isOftenWrong, isDueToday, dueList, speakWord, speechReady, primeSpeech, reviewScore, STUDY_ACCENT, C, todayKey, uid, tint, num, fmtMin, last7, LineChart, Bars7, Card, Row, SheetLayer, lbl, inp, primary, ghost, stepBtn, xBtn, chip, sheet, grip, callClaudeAPI, posList, hasPos, togglePos, keyOf } from "../shared.jsx";
+import { TYPES, VOCAB_TYPES, vocabTypeInfo, POS_LIST, posInfo, MASTER_LEVEL, isMastered, isOftenWrong, isDueToday, dueList, speakWord, speechReady, primeSpeech, ListenPlayer, stripMarkup, hasMarkup, Marked, wrapSelection, splitTermList, reviewScore, STUDY_ACCENT, C, todayKey, uid, tint, num, fmtMin, last7, LineChart, Bars7, Card, Row, SheetLayer, lbl, inp, primary, ghost, stepBtn, xBtn, chip, sheet, grip, callClaudeAPI, posList, hasPos, togglePos, keyOf } from "../shared.jsx";
 
 const DEFAULT_SUBJECTS = ["토익", "자격증"];
 // 토익 학습 영역 — 기록·점수를 파트 단위로 쪼개서 약점을 보이게 한다
@@ -29,10 +29,14 @@ const normPos = (raw) => {
   return map[t] || "";
 };
 
-// "단어 / 뜻 / 품사" 형태의 여러 줄을 한 번에 파싱한다.
-// 구분자는 탭, /, |, ,, -, : 를 지원하고, 없으면 첫 한글 위치에서 자른다(폰에서 띄어쓰기만 하고 넘기는 경우).
+// "단어 - 뜻 - 품사" 형태의 여러 줄을 한 번에 파싱한다.
+// 구분자는 탭, |, ;, :, 하이픈, 쉼표를 지원하고, 없으면 첫 한글 위치에서 자른다.
+//
+// 슬래시(/)는 일부러 구분자에서 뺐다. 사용자가 "raise/rise", "allow/permit"처럼
+// 동의어·혼동어를 한 항목으로 묶는 데 쓰기 때문이다. 구분자로 두면 슬래시 뒤가
+// 뜻으로 넘어가 단어가 통째로 잘려나간다.
 
-const parseVocabLines = (text) => {
+export const parseVocabLines = (text) => {
   const out = [];
   for (const rawLine of String(text||"").split(/\r?\n/)) {
     const line = rawLine.trim();
@@ -41,13 +45,12 @@ const parseVocabLines = (text) => {
     // 쉼표만으로 나뉜 줄("address 주소, 다루다")은 앞쪽이 "단어+첫 뜻"으로 붙어 있을 수 있다.
     // 이때 쉼표로 먼저 자르면 단어가 "address 주소"가 되어버리므로,
     // 확실한 구분자(탭·/·|·;·:·하이픈)가 있을 때만 그것으로 나눈다.
-    const hard = line.split(/\s*[\t/|;:]\s*|\s+[-–—]\s+/).map(x=>x.trim()).filter(Boolean);
+    const hard = line.split(/\s*[\t|;:]\s*|\s+[-–—]\s+/).map(x=>x.trim()).filter(Boolean);
     const m = hard.length >= 2
       ? hard.flatMap(x=>x.split(/\s*,\s*/).map(y=>y.trim()).filter(Boolean))
       : line.split(/\s*,\s*/).map(x=>x.trim()).filter(Boolean);
     if (m.length >= 2) {
       // 첫 조각이 "issue 문제"처럼 단어와 첫 뜻이 붙어 있으면 한글 기준으로 한 번 더 나눈다.
-      // (슬래시와 쉼표를 섞어 쓴 경우에도 단어가 잘못 잘리지 않게)
       const first = m[0];
       let idx = first.search(/[가-힣]/);
       if (idx > 0 && first[idx-1] === "~") idx -= 1;
@@ -98,7 +101,7 @@ const parseVocabLines = (text) => {
         if (!cur) cur = { pos:"", text:"" };
         cur.text += (cur.text ? " " : "") + w;
       }
-      flush();                          // 조각(슬래시·쉼표)이 끝나면 뜻도 끊는다
+      flush();                          // 조각(구분자)이 끝나면 뜻도 끊는다
     }
     flush();
     // 단어 뒤에 붙어 있던 품사는 첫 번째 뜻의 것으로 본다 ("adhere v 지키다")
@@ -917,70 +920,6 @@ function AutoArea({ inputRef, value, onChange, placeholder, minRows = 2, maxRows
   );
 }
 
-// ================= 강조 표기 =================
-// 문법은 "어디가 핵심인지"가 절반이다. 그래서 본문 안에 표시를 남길 수 있게 했다.
-//   *텍스트*  → 강조색 + 굵게
-//   _텍스트_  → 밑줄
-//   !텍스트!  → 주의(빨강)
-// 마크다운을 그대로 쓰지 않고 한 글자 기호만 쓴 이유: 폰에서 치기 쉽고,
-// 문법 노트에 흔한 +, (), ~, / 와 겹치지 않기 때문이다.
-// 실제 입력은 기호를 직접 치는 대신 글자를 선택하고 버튼을 누르면 감싸진다.
-
-const MARK_RE = /(\*[^*\n]+\*|_[^_\n]+_|![^!\n]+!)/g;
-
-// 표시 기호를 걷어낸 순수 텍스트. 퀴즈 보기·검색·읽어주기처럼
-// 서식이 의미 없는 곳에서 기호가 그대로 노출되면 안 되므로 반드시 거쳐야 한다.
-export function stripMarkup(str) {
-  return String(str || "").replace(MARK_RE, (m) => m.slice(1, -1));
-}
-
-export function hasMarkup(str) {
-  MARK_RE.lastIndex = 0;
-  return MARK_RE.test(String(str || ""));
-}
-
-// 표기를 실제 스타일로 바꿔 그린다
-export function Marked({ text, color }) {
-  const t = String(text || "");
-  if (!t) return null;
-  const acc = color || STUDY_ACCENT;
-  const parts = t.split(MARK_RE).filter((x) => x !== "" && x != null);
-  return (
-    <>
-      {parts.map((seg, i) => {
-        if (/^\*[^*\n]+\*$/.test(seg))
-          return <b key={i} style={{ color:acc, fontWeight:800 }}>{seg.slice(1,-1)}</b>;
-        if (/^_[^_\n]+_$/.test(seg))
-          return <u key={i} style={{ textDecorationColor:acc, textUnderlineOffset:3,
-            textDecorationThickness:2 }}>{seg.slice(1,-1)}</u>;
-        if (/^![^!\n]+!$/.test(seg))
-          return <b key={i} style={{ color:C.danger, fontWeight:800 }}>{seg.slice(1,-1)}</b>;
-        return <span key={i}>{seg}</span>;
-      })}
-    </>
-  );
-}
-
-// 선택 영역을 기호로 감싼다. 선택이 없으면 커서 자리에 기호만 넣고 그 사이로 커서를 옮긴다.
-export function wrapSelection(el, mark) {
-  if (!el) return null;
-  const v = el.value || "";
-  const a = el.selectionStart ?? v.length;
-  const b = el.selectionEnd ?? v.length;
-  const picked = v.slice(a, b);
-  // 이미 같은 기호로 감싸져 있으면 해제 (토글)
-  if (picked.length >= 2 && picked[0] === mark && picked[picked.length-1] === mark) {
-    const inner = picked.slice(1, -1);
-    return { value: v.slice(0,a) + inner + v.slice(b), start: a, end: a + inner.length };
-  }
-  const body = picked || "";
-  return {
-    value: v.slice(0,a) + mark + body + mark + v.slice(b),
-    start: a + 1,
-    end: a + 1 + body.length,
-  };
-}
-
 // 강조 버튼 줄
 function MarkBar({ inputRef, value, onChange }) {
   const apply = (mark) => {
@@ -1015,19 +954,6 @@ function MarkBar({ inputRef, value, onChange }) {
 // 문법은 단어와 성격이 다르다. 단어는 "term = meaning" 한 쌍이지만,
 // 문법은 제목 + 패턴 여러 줄 + 해당 동사 목록이라 같은 틀에 넣으면 읽기 어렵다.
 // (실제로 긴 동사 목록이 줄바꿈 없이 화면 밖으로 잘려 나가고 있었다.)
-
-// "2형식 동사(be,become,seem,remain,stay,appear)" 처럼
-// 제목 끝 괄호에 목록을 함께 적는 입력 습관을 살려, 제목과 목록을 분리해 보여준다.
-// 다만 "허(락)기(대)장(려)" 같은 암기용 표기까지 쪼개면 안 되므로
-// "끝에 붙은 괄호 하나 + 안에 구분자로 나뉜 항목 2개 이상"일 때만 분리한다.
-export function splitTermList(term) {
-  const t = String(term || "").trim();
-  const m = t.match(/^([^()]+)\(([^()]+)\)$/);
-  if (!m) return { head: t, items: [] };
-  const items = m[2].split(/[,/·]/).map(x => x.trim()).filter(Boolean);
-  if (items.length < 2) return { head: t, items: [] };
-  return { head: m[1].trim(), items };
-}
 
 // 동사 목록처럼 구분자로 이어 붙인 문자열을 칩으로 끊어준다.
 // 항목이 3개 미만이면 그냥 문장일 가능성이 높아 원문 그대로 둔다.
@@ -1115,6 +1041,119 @@ function GrammarBody({ v }) {
         </div>
       )}
     </>
+  );
+}
+
+
+// ================= 하나씩 보기 =================
+// 복습 카드는 뜻을 가렸다가 맞히는 흐름이라 "그냥 훑어보고 싶을 때" 쓸 수가 없다.
+// 특히 숙어·문법은 외웠는지 시험하기 전에 내용을 차분히 읽는 단계가 먼저 필요하다.
+// 그래서 아무것도 숨기지 않고 한 항목씩 전체를 보여주는 화면을 따로 뒀다.
+// 목록에 걸린 필터(종류·별표·섹션·검색)를 그대로 물려받아 "지금 보고 있는 범위"를 넘긴다.
+
+// 듣기 모드에 넘길 재생 순서와 화면.
+// 문법은 영어 문장이 아니라 제목이 한글 위주라 한국어 음성으로 읽는다.
+export const vocabSteps = (v, withMeaning) => {
+  const isG = v.type === "grammar";
+  const head = stripMarkup(isG ? splitTermList(v.term).head : v.term);
+  const steps = [{ text: head, lang: isG ? "ko-KR" : "en-US" }];
+  if (!isG) steps.push({ text: head, lang: "en-US" });   // 단어는 두 번 읽어 귀에 붙게
+  if (withMeaning && v.meaning) {
+    steps.push({ text: stripMarkup(v.meaning).replace(/\s*\n+\s*/g, ", "), lang: "ko-KR" });
+  }
+  return steps;
+};
+
+export const vocabListenView = (v) => {
+  const isG = v.type === "grammar";
+  const ti = vocabTypeInfo(v.type);
+  return (
+    <>
+      <div style={{ fontSize:10.5, fontWeight:800, color:ti.color }}>
+        {ti.icon} {ti.label}{v.tag ? ` · ${v.tag}` : ""}
+      </div>
+      <div style={{ fontSize:19, fontWeight:800, lineHeight:1.4, wordBreak:"break-word" }}>
+        <Marked text={isG ? splitTermList(v.term).head : v.term} />
+      </div>
+      {v.meaning && (
+        <div style={{ fontSize:13.5, color:STUDY_ACCENT, fontWeight:700, lineHeight:1.6,
+          whiteSpace:"pre-wrap", wordBreak:"break-word" }}><Marked text={v.meaning} /></div>
+      )}
+    </>
+  );
+};
+
+function BrowseCard({ rows, idx, setIdx, onClose, onStar, onBump }) {
+  const v = rows[idx];
+  if (!v) return null;
+  const ti = vocabTypeInfo(v.type);
+  const isG = v.type === "grammar";
+  const canSpeak = speechReady() && !isG;
+  const go = (d) => setIdx((i) => (i + d + rows.length) % rows.length);   // 끝에서 처음으로 돌아온다
+
+  return (
+    <div style={{ marginTop:11, padding:"13px 14px", borderRadius:13, background:C.surface2,
+      border:`1px solid ${tint(ti.color,0.35)}` }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:9 }}>
+        <span style={{ fontSize:10.5, fontWeight:800, color:ti.color }}>{ti.icon} {ti.label}</span>
+        {v.tag && <span style={{ fontSize:10, color:C.muted, background:C.surface, borderRadius:999, padding:"2px 8px" }}>{v.tag}</span>}
+        <div style={{ flex:1 }} />
+        <span style={{ fontSize:11, color:C.muted, fontWeight:700 }}>{idx+1} / {rows.length}</span>
+        <button onClick={onClose} style={{ background:"none", border:"none", color:C.muted,
+          fontSize:15, cursor:"pointer", padding:"0 2px", lineHeight:1 }}>×</button>
+      </div>
+
+      {/* 진행 막대 — 섹션을 어디까지 훑었는지 감이 잡힌다 */}
+      <div style={{ height:3, background:C.surface, borderRadius:99, overflow:"hidden", marginBottom:11 }}>
+        <div style={{ width:`${((idx+1)/rows.length)*100}%`, height:"100%", background:ti.color, transition:"width .2s" }} />
+      </div>
+
+      <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+        <span style={{ fontSize:17, fontWeight:800, lineHeight:1.4, wordBreak:"break-word" }}>
+          <Marked text={isG ? splitTermList(v.term).head : v.term} />
+        </span>
+        {posList(v.pos).map(pi=>(
+          <span key={pi.k} style={{ fontSize:10, fontWeight:800, color:pi.color,
+            background:tint(pi.color,0.14), borderRadius:999, padding:"2px 8px" }}>{pi.short}</span>
+        ))}
+        {canSpeak && (
+          <button onClick={()=>speakWord(stripMarkup(v.term))} title="발음 듣기"
+            style={{ background:"none", border:"none", cursor:"pointer", fontSize:16, padding:2, opacity:0.7 }}>🔊</button>
+        )}
+      </div>
+
+      <div style={{ marginTop:9 }}>
+        {isG ? <GrammarBody v={v} /> : (<>
+          {v.meaning && (
+            <div style={{ fontSize:14.5, color:STUDY_ACCENT, fontWeight:700, lineHeight:1.65,
+              whiteSpace:"pre-wrap", wordBreak:"break-word" }}><Marked text={v.meaning} /></div>
+          )}
+          {v.note && (
+            <div style={{ fontSize:12, color:C.muted, marginTop:7, lineHeight:1.6,
+              whiteSpace:"pre-wrap", wordBreak:"break-word" }}><Marked text={v.note} /></div>
+          )}
+          {v.ex && (
+            <div style={{ fontSize:12, color:C.muted, marginTop:8, lineHeight:1.6, fontStyle:"italic",
+              paddingLeft:10, borderLeft:`2px solid ${C.line}`, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>
+              <Marked text={v.ex} />
+            </div>
+          )}
+        </>)}
+      </div>
+
+      <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:13 }}>
+        <button onClick={()=>go(-1)} style={{...ghost, flex:1, fontSize:13, padding:"11px 0"}}>← 이전</button>
+        <button onClick={()=>onStar(v.id)} title="별표"
+          style={{ background: v.starred?tint("#FFD24B",0.15):C.surface, flexShrink:0,
+            border:`1px solid ${v.starred?"#FFD24B":C.line}`, borderRadius:10, padding:"0 12px",
+            cursor:"pointer", fontSize:16, alignSelf:"stretch" }}>{v.starred ? "⭐" : "☆"}</button>
+        <button onClick={()=>{ onBump(v.id, 1); go(1); }} title="외웠어요"
+          style={{ background:tint(TYPES.legs.color,0.14), flexShrink:0, color:TYPES.legs.color,
+            border:`1px solid ${tint(TYPES.legs.color,0.4)}`, borderRadius:10, padding:"0 13px",
+            cursor:"pointer", fontSize:14, fontWeight:800, alignSelf:"stretch" }}>✓</button>
+        <button onClick={()=>go(1)} style={{...primary(ti.color), flex:1, fontSize:13, padding:"11px 0"}}>다음 →</button>
+      </div>
+    </div>
   );
 }
 
@@ -1510,8 +1549,14 @@ function StudyVocab({ data, mutate, apiKey }) {
 
   // 교재 섹션 단위로 공부하는 흐름에 맞춰, 태그별로 묶어 볼 수 있게 한다.
   // 섹션 이름 앞의 숫자를 뽑아 자연 순서로 정렬해야 Section 2가 Section 10보다 앞에 온다.
-  const [grouped, setGrouped] = useState(false);
+  // 기본으로 묶어서 보여준다. 눌러야만 섹션이 보이면 있는 줄도 모르고 지나친다.
+  const [grouped, setGrouped] = useState(true);
+  const [browseOn, setBrowseOn] = useState(false);
+  const [listenOn, setListenOn] = useState(false);
+  const [bi, setBi] = useState(0);
   const secNum = (t) => { const m = String(t||"").match(/\d+/); return m ? Number(m[0]) : 9999; };
+  // 필터·검색이 바뀌면 보고 있던 위치가 범위를 벗어난다. 처음으로 되돌린다.
+  useEffect(()=>{ setBi(0); }, [tab, filterMode, tagFilter, q]);
   const groupsOf = (rows) => {
     const map = new Map();
     rows.forEach((v)=>{ const k = (v.tag||"").trim(); if(!map.has(k)) map.set(k, []); map.get(k).push(v); });
@@ -1831,6 +1876,33 @@ function StudyVocab({ data, mutate, apiKey }) {
               </button>
             ))}
           </div>
+          {/* 하나씩 넘겨 보기 · 듣기 — 지금 걸린 필터 범위를 그대로 물려받는다 */}
+          {listed.length>0 && (browseOn ? (
+            <BrowseCard rows={listed} idx={Math.min(bi, listed.length-1)} setIdx={setBi}
+              onClose={()=>setBrowseOn(false)} onStar={toggleStar} onBump={bump} />
+          ) : listenOn ? (
+            <ListenPlayer rows={listed} accent={STUDY_ACCENT} onClose={()=>setListenOn(false)}
+              getSteps={vocabSteps} renderItem={vocabListenView} />
+          ) : (
+            <div style={{ display:"flex", gap:7, marginTop:9 }}>
+              <button onClick={()=>{ setBi(0); setBrowseOn(true); }}
+                style={{ flex:1, padding:"11px 0", borderRadius:11, cursor:"pointer",
+                  background:tint(STUDY_ACCENT,0.1), border:`1px solid ${tint(STUDY_ACCENT,0.35)}`,
+                  color:STUDY_ACCENT, fontSize:12.5, fontWeight:800 }}>
+                📖 하나씩 보기
+                <span style={{ fontSize:10.5, fontWeight:600, opacity:0.75, marginLeft:6 }}>{listed.length}</span>
+              </button>
+              {speechReady() && (
+                <button onClick={()=>{ primeSpeech(); setListenOn(true); }}
+                  style={{ flex:1, padding:"11px 0", borderRadius:11, cursor:"pointer",
+                    background:tint("#8FD3FF",0.1), border:`1px solid ${tint("#8FD3FF",0.35)}`,
+                    color:"#8FD3FF", fontSize:12.5, fontWeight:800 }}>
+                  🎧 듣기 모드
+                </button>
+              )}
+            </div>
+          ))}
+
           {/* 섹션(태그)으로 좁혀 본 상태를 눈에 보이게 — 왜 목록이 짧은지 알 수 있게 */}
           {tagFilter && (
             <div style={{ display:"flex", alignItems:"center", gap:7, marginTop:8, padding:"8px 11px",
