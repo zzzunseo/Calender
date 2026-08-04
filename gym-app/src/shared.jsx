@@ -115,15 +115,48 @@ export const dueList = (vocab, limit) => {
   return limit > 0 ? due.slice(0, limit) : due;
 };
 
-// 발음 듣기 — 브라우저 내장 음성합성이라 API·비용이 필요 없다
+// 발음 듣기 — 브라우저 내장 음성합성이라 API·비용이 필요 없다.
+// 다만 그냥 speak()만 부르면 잘 안 들리는 경우가 많아 세 가지를 보정한다.
+//  ① 음성 목록(getVoices)이 비동기로 채워져서, 앱을 켜자마자 부르면 목록이 비어 기본 음성(한국어)으로 읽어버린다
+//  ② lang만 지정하면 브라우저가 무시하는 경우가 있어 영어 음성 객체를 직접 골라 넣는다
+//  ③ iOS는 speak() 직후 paused 상태로 시작하는 버그가 있어 resume()으로 깨워야 한다
+let _voices = [];
+const loadVoices = () => { try { const v = window.speechSynthesis.getVoices() || []; if (v.length) _voices = v; } catch(e) { /* 무시 */ } };
+if (typeof window !== "undefined" && window.speechSynthesis) {
+  loadVoices();
+  window.speechSynthesis.addEventListener?.("voiceschanged", loadVoices);
+}
+
+export const speechReady = () => {
+  try { return !!(window.speechSynthesis && window.SpeechSynthesisUtterance); } catch(e) { return false; }
+};
+
+// iOS는 "사용자가 누른 직후"에만 첫 소리를 허용한다.
+// 퀴즈 시작 버튼처럼 확실한 터치 시점에 무음으로 한 번 깨워두면 이후 자동 재생이 막히지 않는다.
+export const primeSpeech = () => {
+  try {
+    const s = window.speechSynthesis; if (!s) return;
+    const u = new SpeechSynthesisUtterance(" ");
+    u.volume = 0; s.speak(u);
+  } catch(e) { /* 지원 안 하는 브라우저는 그냥 넘어간다 */ }
+};
 
 export const speakWord = (text, lang="en-US") => {
   try {
-    if (!window.speechSynthesis) return false;
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(String(text||""));
+    const s = window.speechSynthesis;
+    if (!s) return false;
+    const str = String(text||"").trim();
+    if (!str) return false;
+    s.cancel();
+    const u = new SpeechSynthesisUtterance(str);
     u.lang = lang; u.rate = 0.9;
-    window.speechSynthesis.speak(u);
+    loadVoices();   // 음성 목록은 늦게 채워지기도 하고 중간에 바뀌기도 해서 매번 갱신
+    const want = lang.slice(0,2).toLowerCase();
+    const pick = _voices.find(v=>v.lang && v.lang.toLowerCase().replace("_","-") === lang.toLowerCase())
+      || _voices.find(v=>v.lang && v.lang.toLowerCase().replace("_","-").startsWith(want));
+    if (pick) u.voice = pick;
+    s.speak(u);
+    setTimeout(()=>{ try { if (s.paused) s.resume(); } catch(e) { /* 무시 */ } }, 60);
     return true;
   } catch(e) { return false; }
 };
@@ -217,6 +250,30 @@ export const didWorkout = (e) => {
 
 export const emptyDay = () => ({ type:null, parts:[], cardio:null, foods:[], lifts:[], note:"", sleep:null, water:0, partSets:{}, mainLift:null, creatine:false, mood:null, diary:"", habitLog:{}, steps:0 });
 
+
+// 크레아틴 전용 기능을 걷어내면서, 그동안 체크해둔 기록이 사라지지 않게
+// 일반 습관 항목으로 옮긴다. 한 번만 실행되고(migratedCreatine 플래그) 원본 필드는 건드리지 않는다.
+// 습관 자체가 필요 없으면 오늘 탭 습관 → 편집에서 지우면 되고, 그때 과거 기록도 같이 정리된다.
+export const migrateCreatine = (d) => {
+  if (!d || d.migratedCreatine) return d;
+  const days = Object.keys(d.schedule || {}).filter((k) => d.schedule[k] && d.schedule[k].creatine);
+  if (!days.length) return { ...d, migratedCreatine: true };   // 복용 기록이 없으면 습관도 만들지 않는다
+
+  const habits = d.habits || [];
+  let habit = habits.find((h) => h && h.name === "크레아틴");
+  const nextHabits = habit ? habits : [...habits, (habit = { id: uid(), name: "크레아틴", emoji: "💊" })];
+
+  const schedule = { ...d.schedule };
+  days.forEach((k) => {
+    const e = schedule[k];
+    const log = e.habitLog || {};
+    if (log[habit.id]) return;   // 이미 옮겨둔 날은 건드리지 않는다
+    schedule[k] = { ...e, habitLog: { ...log, [habit.id]: true } };
+  });
+
+  return { ...d, habits: nextHabits, schedule, migratedCreatine: true };
+};
+
 export const normalize = (d) => ({
   // 모르는 필드도 그대로 넘긴다. 캐시된 구버전 코드가 돌더라도
   // 자기가 모르는 새 데이터(계획·단어장 등)를 지워버리지 않게 하는 안전장치.
@@ -240,6 +297,8 @@ export const normalize = (d) => ({
   weekGoals: d.weekGoals || {},      // { workouts: 4, sets: 80 }
   mealSets: d.mealSets || [],        // 식단 세트: [{id,name,icon,items:[{name,protein,...}]}]
   vocabGoal: d.vocabGoal || 20,      // 하루 복습 목표 개수
+  migratedCreatine: !!d.migratedCreatine,   // 크레아틴 → 습관 이관 완료 여부 (1회성)
+  barcodes: d.barcodes || {},        // 내 바코드 사전: { "8801234567890": {name,protein,carbs,sugar,fat,kcal,liquidMl,count,lastUsed} }
 });
 
 export const NUTRI_PROMPT = `아래는 사용자가 먹은 음식/보충제(프로틴 쉐이크 등) 설명이야.
@@ -369,8 +428,6 @@ export function QuickAdd({ day, updateToday, weight, onGoToday, onAddVocab }) {
     { key:"steps", icon:"🚶", label:"걸음 +1천", color:"#5AD1A0",
       sub: steps>0 ? `${(steps/1000).toFixed(1)}천보` : "미기록",
       run:()=>{ const n=steps+1000; updateToday({ steps:n }); show(`${(n/1000).toFixed(1)}천보 · ≈${stepsToKcal(n,weight)}kcal`); } },
-    { key:"creatine", icon:"💊", label: day.creatine?"크레아틴 취소":"크레아틴 복용", color:"#C9A6FF",
-      sub: day.creatine?"복용함":"아직", run:()=>{ updateToday({ creatine: !day.creatine }); show(day.creatine?"크레아틴 취소":"크레아틴 ✓"); } },
     { key:"word", icon:"📖", label:"단어 추가", color:STUDY_ACCENT,
       sub:"떠오를 때", run:()=>{ setWordOpen(true); setOpen(false); } },
     { key:"go", icon:"📝", label:"오늘 탭에서 기록", color:TYPES.push.color,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
-import { C, tint, todayKey, uid, extraWater, num, emptyDay, normalize, computeTDEE, UndoToast, QuickAdd, SaveBadge, TabBar } from "./shared.jsx";
+import { C, tint, todayKey, uid, extraWater, num, emptyDay, normalize, migrateCreatine, computeTDEE, UndoToast, QuickAdd, SaveBadge, TabBar } from "./shared.jsx";
 import { loadCloudCfg, saveCloudCfg, clearCloudCfg, connect as cloudConnect, push as cloudPush, pull as cloudPull, summarizeData, fmtAgo } from "./cloud.js";
 
 // 탭 화면은 실제로 들어갈 때만 불러온다(코드 분할).
@@ -39,7 +39,14 @@ export default function App() {
         let chosen = null;
         if (main && bak) chosen = (num(bak.updatedAt) > num(main.updatedAt)) ? bak : main;
         else chosen = main || bak;
-        if (chosen) { setData(normalize(chosen)); localStamp.current = num(chosen.updatedAt); }
+        if (chosen) {
+          const base = normalize(chosen);
+          const moved = migrateCreatine(base);
+          setData(moved);
+          localStamp.current = num(chosen.updatedAt);
+          // 이관 결과를 바로 저장하지 않으면 다음에 켤 때 원상복구된다
+          if (moved !== base) needMigrationSave.current = moved;
+        }
         else {
           const old = await window.storage.get("schedule", false).catch(()=>null);
           if (old && old.value) {
@@ -86,6 +93,8 @@ export default function App() {
   // 마지막으로 바뀐 시각. data 상태에는 updatedAt이 안 들어가고 저장 payload에만 붙기 때문에,
   // 클라우드의 기록과 어느 쪽이 최신인지 비교하려면 이렇게 따로 들고 있어야 한다.
   const localStamp = useRef(0);
+  // 첫 로드 때 크레아틴 → 습관 이관이 일어났으면 그 결과를 한 번 저장해야 한다
+  const needMigrationSave = useRef(null);
 
   const save = (next) => {
     setSaveStatus("pending");
@@ -193,7 +202,7 @@ export default function App() {
   const applyIncoming = useCallback(() => {
     if (!incoming) return;
     // persist에 라벨을 넘기면 9초간 되돌리기 배너가 뜬다 — 덮어쓰기 사고의 안전망
-    persist(normalize(incoming.data), "클라우드에서 가져오기");
+    persist(migrateCreatine(normalize(incoming.data)), "클라우드에서 가져오기");
     // 방금 내려받은 내용을 그대로 되올리면 다른 기기에 "변경됨" 배너가 헛으로 뜬다 → 예약된 업로드 취소
     if (pushTimer.current) { clearTimeout(pushTimer.current); pushTimer.current = null; }
     localStamp.current = incoming.remoteStamp;
@@ -257,6 +266,14 @@ export default function App() {
     return ()=>document.removeEventListener("visibilitychange", onHide);
   }, [doPush]);
 
+  // 이관 저장은 로딩이 끝난 뒤 한 번만
+  useEffect(()=>{
+    if (loading || !needMigrationSave.current) return;
+    const moved = needMigrationSave.current;
+    needMigrationSave.current = null;
+    save(moved);
+  }, [loading]);
+
   const cloud = {
     cfg: cloudCfg, state: cloudState, incoming,
     connect: doConnect, disconnect: doDisconnect, setAuto,
@@ -306,7 +323,7 @@ export default function App() {
         <Suspense fallback={<TabFallback />}>
           {tab==="today" && <Today data={data} updateDay={updateDay} addFoodsToday={addFoodsToday} target={proteinTarget()} tdee={computeTDEE(data.profile, latestWeight())} weight={latestWeight()} favProps={favProps} apiKey={data.profile.apiKey} customFoods={data.customFoods} mutate={mutate} goToTab={setTab} />}
           {tab==="calendar" && <Calendar data={data} persist={persist} updateDay={updateDay} favProps={favProps} apiKey={data.profile.apiKey} customFoods={data.customFoods} routines={data.routines} mutate={mutate} />}
-          {tab==="foods" && <Foods addFoodsToday={addFoodsToday} apiKey={data.profile.apiKey} customFoods={data.customFoods} mutate={mutate} schedule={data.schedule} favorites={data.favorites} mealSets={data.mealSets} target={proteinTarget()} tdee={computeTDEE(data.profile, latestWeight())} surplus={num(data.profile.surplus)} addFavorite={addFavorite} removeFavorite={removeFavorite} />}
+          {tab==="foods" && <Foods addFoodsToday={addFoodsToday} apiKey={data.profile.apiKey} customFoods={data.customFoods} mutate={mutate} schedule={data.schedule} favorites={data.favorites} mealSets={data.mealSets} target={proteinTarget()} tdee={computeTDEE(data.profile, latestWeight())} surplus={num(data.profile.surplus)} addFavorite={addFavorite} removeFavorite={removeFavorite} barcodes={data.barcodes} />}
           {tab==="study" && <Study data={data} persist={persist} mutate={mutate} />}
           {tab==="stats" && <Stats data={data} target={proteinTarget()} tdee={computeTDEE(data.profile, latestWeight())} weight={latestWeight()} mutate={mutate} />}
           {tab==="body" && <Body data={data} persist={persist} mutate={mutate} target={proteinTarget()} latestWeight={latestWeight()} tdee={computeTDEE(data.profile, latestWeight())} cloud={cloud} />}
