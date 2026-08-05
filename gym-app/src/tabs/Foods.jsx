@@ -673,7 +673,7 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule, favorites, m
           {(()=>{
             const mult = multOf(e);
             const gTotal = Math.round(gramsPerServing(e) * mult);
-            const hint = portionHint(gTotal, displayCat(e));
+            const hint = portionHint(gTotal, displayCat(e), e);
             if (!hint) return null;
             return (
               <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:7, padding:"7px 10px",

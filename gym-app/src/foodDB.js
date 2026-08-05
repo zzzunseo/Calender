@@ -935,9 +935,12 @@ function extractQty(segment, unitPattern) {
 // 카테고리별 1인분(1개) 평균 무게(g) — count 음식에 g 단위 입력 시 환산용 근사치
 const DEFAULT_GRAMS_BY_CAT = {
   "한식":350, "국·탕":450, "면류":500, "분식":300, "중식":350, "일식":350, "아시안":350,
-  "샐러드·건강식":250, "고기·구이":150, "치킨":950, "버거":230, "피자":120, "빵류":90,
+  "샐러드·건강식":250, "고기·구이":150, "치킨":780, "버거":230, "피자":120, "빵류":90,
   "편의점":200, "카페":355, "음료":350, "술·안주":300, "간식":60, "디저트":100,
   "반찬·야채":80, "과일":150, "유제품·보충제":250, "기본재료":100, "기타":300,
+  // 소스·양념이 빠져 있어 300g(기타 기본값)으로 잡히고 있었다.
+  // 케찹 1인분이 300g이 되면서 "밥숟가락 20큰술" 같은 안내가 나왔다. 1큰술 기준으로 바로잡는다.
+  "소스·양념":15,
 };
 
 // ===== 계량 기준점 (눈대중 도우미) =====
@@ -971,9 +974,23 @@ export const CAT_PORTION_HINT = {
   "기본재료":"조리 전 100g 기준", "소스·양념":"1큰술 ≈ 15g",
 };
 // g 수치를 익숙한 것에 빗대어 설명 — "350g이 대체 얼마야?"를 풀어준다
-export function portionHint(grams, cat) {
+export function portionHint(grams, cat, entry) {
   const g = Number(grams) || 0;
   if (g <= 0) return null;
+
+  // 기본재료에는 닭가슴살 같은 육류와 양배추 같은 채소가 섞여 있다.
+  // 둘 다 "손바닥 크기"로 안내하면 채소 쪽이 터무니없이 작아 보인다
+  // (잎채소 100g은 손바닥이 아니라 두 손 가득에 가깝다).
+  // 카테고리로는 구분이 안 되므로 열량 밀도로 갈라준다.
+  if (cat === "기본재료" && entry && entry.kcal != null) {
+    const per100 = Number(entry.kcal) / (Number(entry.baseQty || 100) / 100);
+    if (per100 < 60) return `두 손 가득 약 ${(g/70).toFixed(1)}번 (잎채소 기준)`;
+  }
+  // 우유·요거트·프로틴을 손바닥으로 재는 건 말이 안 된다
+  if (cat === "유제품·보충제") {
+    if (g <= 40) return `스쿱 약 ${(g/30).toFixed(1)}개`;
+    return `종이컵 약 ${(g/180).toFixed(1)}컵`;
+  }
   if (cat === "소스·양념") return `밥숟가락 약 ${Math.max(1, Math.round(g/15))}큰술`;
   if (cat === "카페" || cat === "음료") {
     if (g >= 300) return `종이컵 약 ${(g/180).toFixed(1)}컵`;
@@ -1004,6 +1021,7 @@ export function portionHint(grams, cat) {
 
 // 이 음식의 "1인분(1개/1회분)"이 몇 g인지 반환. 명시값 > 밥 등 gramsPerUnit > 카테고리 평균 순.
 export function gramsPerServing(entry) {
+  if (!entry) return 300;
   if (entry.gramsPerServing) return entry.gramsPerServing;
   if (entry.unit === "gram") return entry.baseQty;
   if (entry.gramsPerUnit) return entry.gramsPerUnit;
