@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { TYPES, STUDY_ACCENT, C, keyOf, todayKey, uid, tint, num, normalize, MACRO_GOALS, rd1, LineChart, Card, Row, MiniCard, Collapsible, ConfirmX, lbl, inp, primary, ghost, stepBtn, chip } from "../shared.jsx";
 
 const ACTIVITY = [
@@ -120,7 +120,22 @@ const bulkVerdict = (trend, weight) => {
   return { tone:"good", title:"방향은 괜찮아요", msg:"측정을 몇 번 더 쌓으면 더 정확하게 볼 수 있어요." };
 };
 
-export default function Body({ data, persist, mutate, target, latestWeight, tdee, cloud }) {
+export default function Body({ data, persist, mutate, target, latestWeight, tdee, cloud, focus, onFocusDone }) {
+
+  // 설정 허브에서 넘어온 경우 해당 카드로 데려간다.
+  // 탭만 바꾸면 사용자가 긴 화면을 다시 훑어야 해서 통합한 의미가 없다.
+  const secRefs = useRef({});
+  const [openSig, setOpenSig] = useState({});
+  useEffect(()=>{
+    if (!focus) return;
+    const el = secRefs.current[focus];
+    if (el && el.scrollIntoView) {
+      // 렌더가 끝난 뒤에 위치를 재야 정확하다
+      requestAnimationFrame(()=>el.scrollIntoView({ behavior:"smooth", block:"start" }));
+    }
+    setOpenSig((p)=>({ ...p, [focus]: (p[focus]||0) + 1 }));
+    if (onFocusDone) onFocusDone();
+  }, [focus, onFocusDone]);
   const [m, setM] = useState({ date:todayKey(), weight:"", fat:"", muscle:"", note:"" });
   const [metric, setMetric] = useState("weight");
   const [importText, setImportText] = useState("");
@@ -250,6 +265,7 @@ export default function Body({ data, persist, mutate, target, latestWeight, tdee
       </div>
 
       {/* 프로필 (TDEE용) */}
+      <div ref={(el)=>{ secRefs.current.profile = el; }} />
       <Card>
         <Row><span style={lbl}>프로필</span>{tdee!=null && <span style={{ fontSize:12, color:C.muted }}>유지 칼로리 ≈ {tdee}kcal</span>}</Row>
         <div style={{ display:"flex", gap:6, marginTop:10 }}>
@@ -366,9 +382,11 @@ export default function Body({ data, persist, mutate, target, latestWeight, tdee
       )}
 
       {/* 기기 간 동기화 — 백업보다 위에 둔다. 자동으로 돌아가면 수동 백업 부담이 줄기 때문 */}
-      <CloudSyncCard cloud={cloud} />
+      <div ref={(el)=>{ secRefs.current.cloud = el; }} />
+      <CloudSyncCard cloud={cloud} openSignal={openSig.cloud} />
 
       {/* 백업 */}
+      <div ref={(el)=>{ secRefs.current.backup = el; }} />
       <Card>
         <Row><span style={lbl}>데이터 백업</span>
           <span style={{ fontSize:11.5, color: backupStale?C.amber:C.muted, fontWeight:backupStale?800:600 }}>
@@ -418,7 +436,8 @@ export default function Body({ data, persist, mutate, target, latestWeight, tdee
       </Card>
 
       {/* API 키 — 없어도 대부분 쓸 수 있으니 맨 아래에 접어둔다 */}
-      <Collapsible title="AI 기능 · API 키" accent={TYPES.push.color}
+      <div ref={(el)=>{ secRefs.current.api = el; }} />
+      <Collapsible title="AI 기능 · API 키" accent={TYPES.push.color} openSignal={openSig.api}
         summary={profile.apiKey ? "연결됨" : "선택 사항"}>
         <Card>
           <div style={{ fontSize:11.5, color:C.muted, lineHeight:1.6 }}>
@@ -444,7 +463,7 @@ export default function Body({ data, persist, mutate, target, latestWeight, tdee
 // 토큰은 앱 데이터와 분리해서 보관하므로 백업 JSON에는 절대 안 섞인다.
 const CLOUD = "#8FD3FF";
 
-function CloudSyncCard({ cloud }) {
+function CloudSyncCard({ cloud, openSignal }) {
   const [token, setToken] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -477,7 +496,7 @@ function CloudSyncCard({ cloud }) {
 
   if (!connected) {
     return (
-      <Collapsible title="☁️ 기기 간 동기화" accent={CLOUD} summary="꺼짐">
+      <Collapsible title="☁️ 기기 간 동기화" accent={CLOUD} summary="꺼짐" openSignal={openSignal}>
         <Card>
           <div style={{ fontSize:11.5, color:C.muted, lineHeight:1.65 }}>
             지금 기록은 <b style={{color:C.text}}>이 브라우저 안에만</b> 있어요. 폰과 PC가 따로 놀고, 폰을 바꾸면 사라져요.

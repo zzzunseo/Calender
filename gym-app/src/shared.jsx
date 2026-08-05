@@ -459,6 +459,7 @@ export const normalize = (d) => ({
   mealSets: d.mealSets || [],        // 식단 세트: [{id,name,icon,items:[{name,protein,...}]}]
   vocabGoal: d.vocabGoal || 20,      // 하루 복습 목표 개수
   migratedCreatine: !!d.migratedCreatine,   // 크레아틴 → 습관 이관 완료 여부 (1회성)
+  todayLayout: d.todayLayout || null,   // 오늘 탭 카드 순서·숨김 (사용자가 정한 값)
   barcodes: d.barcodes || {},        // 내 바코드 사전: { "8801234567890": {name,protein,carbs,sugar,fat,kcal,liquidMl,count,lastUsed} }
 });
 
@@ -1121,7 +1122,7 @@ export function ConfirmX({ onConfirm, label="삭제", size=15 }) {
     return (
       <button onClick={(e)=>{ e.stopPropagation(); setArmed(false); onConfirm(); }}
         style={{ background:tint(C.danger,0.16), border:`1px solid ${C.danger}`, color:C.danger,
-          borderRadius:8, padding:"4px 9px", cursor:"pointer", fontSize:10.5, fontWeight:800,
+          borderRadius:8, padding:"8px 11px", minHeight:34, cursor:"pointer", fontSize:11, fontWeight:800,
           whiteSpace:"nowrap", flexShrink:0 }}>
         {label}?
       </button>
@@ -1130,7 +1131,8 @@ export function ConfirmX({ onConfirm, label="삭제", size=15 }) {
   return (
     <button onClick={(e)=>{ e.stopPropagation(); setArmed(true); }} title={label}
       style={{ background:"none", border:"none", color:C.muted, fontSize:size, cursor:"pointer",
-        padding:"0 3px", flexShrink:0, lineHeight:1 }}>×</button>
+        width:34, height:34, display:"inline-flex", alignItems:"center", justifyContent:"center",
+        padding:0, flexShrink:0, lineHeight:1 }}>×</button>
   );
 }
 
@@ -1144,7 +1146,11 @@ export const ghost = { padding:"12px 18px", borderRadius:12, cursor:"pointer", b
 
 export const stepBtn = { width:28, height:28, borderRadius:8, cursor:"pointer", background:C.surface, border:`1px solid ${C.line}`, color:C.text, fontSize:16, fontWeight:700, lineHeight:1 };
 
-export const xBtn = { width:26, height:26, borderRadius:8, cursor:"pointer", background:C.surface2, border:`1px solid ${C.line}`, color:C.muted, fontSize:15, lineHeight:1, flexShrink:0 };
+// 삭제 버튼. 26px였을 때 옆 버튼과 붙어 있어 잘못 누르기 쉬웠다.
+// 손가락 접촉면(약 9mm)을 감안해 34px로 넓히고, 글리프는 가운데 정렬한다.
+export const xBtn = { width:34, height:34, borderRadius:9, cursor:"pointer", background:C.surface2,
+  border:`1px solid ${C.line}`, color:C.muted, fontSize:16, lineHeight:1, flexShrink:0,
+  display:"inline-flex", alignItems:"center", justifyContent:"center", padding:0 };
 
 export const chip = (on,color) => ({ padding:"8px 12px", borderRadius:999, cursor:"pointer", fontSize:12.5, fontWeight:700, border:`1.5px solid ${on?color:C.line}`, background:on?tint(color,0.18):C.surface2, color:C.text });
 

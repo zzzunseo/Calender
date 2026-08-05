@@ -22,6 +22,10 @@ function TabFallback() {
 
 export default function App() {
   const [tab, setTab] = useState("today");
+  // 설정 항목이 몸 탭 여기저기에 흩어져 있어서, 어디서 바꾸는지 매번 헤매게 된다.
+  // 탭만 옮기면 사용자가 다시 찾아 내려가야 하므로 "어느 카드로 갈지"를 함께 넘긴다.
+  const [tabFocus, setTabFocus] = useState(null);
+  const goToTab = (t, focus=null) => { setTab(t); setTabFocus(focus); };
   const [data, setData] = useState(normalize({}));
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState("idle"); // idle | pending | saving | saved | error
@@ -321,12 +325,12 @@ export default function App() {
       <div key={tab} className="tab-content">
         {/* 탭 코드를 불러오는 동안 자리표시를 보여준다 */}
         <Suspense fallback={<TabFallback />}>
-          {tab==="today" && <Today data={data} updateDay={updateDay} addFoodsToday={addFoodsToday} target={proteinTarget()} tdee={computeTDEE(data.profile, latestWeight())} weight={latestWeight()} favProps={favProps} apiKey={data.profile.apiKey} customFoods={data.customFoods} mutate={mutate} goToTab={setTab} />}
+          {tab==="today" && <Today data={data} updateDay={updateDay} addFoodsToday={addFoodsToday} target={proteinTarget()} tdee={computeTDEE(data.profile, latestWeight())} weight={latestWeight()} favProps={favProps} apiKey={data.profile.apiKey} customFoods={data.customFoods} mutate={mutate} goToTab={goToTab} />}
           {tab==="calendar" && <Calendar data={data} persist={persist} updateDay={updateDay} favProps={favProps} apiKey={data.profile.apiKey} customFoods={data.customFoods} routines={data.routines} mutate={mutate} />}
           {tab==="foods" && <Foods addFoodsToday={addFoodsToday} apiKey={data.profile.apiKey} customFoods={data.customFoods} mutate={mutate} schedule={data.schedule} favorites={data.favorites} mealSets={data.mealSets} target={proteinTarget()} tdee={computeTDEE(data.profile, latestWeight())} surplus={num(data.profile.surplus)} addFavorite={addFavorite} removeFavorite={removeFavorite} barcodes={data.barcodes} />}
           {tab==="study" && <Study data={data} persist={persist} mutate={mutate} />}
           {tab==="stats" && <Stats data={data} target={proteinTarget()} tdee={computeTDEE(data.profile, latestWeight())} weight={latestWeight()} mutate={mutate} />}
-          {tab==="body" && <Body data={data} persist={persist} mutate={mutate} target={proteinTarget()} latestWeight={latestWeight()} tdee={computeTDEE(data.profile, latestWeight())} cloud={cloud} />}
+          {tab==="body" && <Body data={data} persist={persist} mutate={mutate} target={proteinTarget()} latestWeight={latestWeight()} tdee={computeTDEE(data.profile, latestWeight())} cloud={cloud} focus={tabFocus} onFocusDone={()=>setTabFocus(null)} />}
         </Suspense>
       </div>
       <CloudIncomingBanner incoming={incoming} onApply={applyIncoming} onDismiss={()=>setIncoming(null)} />

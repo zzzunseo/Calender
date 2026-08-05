@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from "react";
-import { TYPES, partBreakdown, CARDIO, WEEKDAYS, vocabTypeInfo, posInfo, REVIEW_GAP, dueList, speakWord, speechReady, primeSpeech, ListenPlayer, stripMarkup, splitTermList, STUDY_ACCENT, SLEEP_ACCENT, MOODS, C, keyOf, todayKey, uid, extraWater, tint, num, show1, fmtMin, last7, lastNDays, didWorkout, emptyDay, stepsToKcal, burnedKcal, MACRO_GOALS, rd1, macroTargets, planDate, QuickWorkoutBlock, CONDITION_LABELS, SleepBlock, FoodSection, LineChart, Bars7, Card, GlassCard, useCountUp, Row, MiniCard, Collapsible, ConfirmX, lbl, inp, primary, ghost, stepBtn, chip, cardioInfo, posList } from "../shared.jsx";
+import { useState, useEffect, useRef, Fragment } from "react";
+import { searchAll, searchFmtDate } from "../search.js";
+import { TYPES, partBreakdown, CARDIO, WEEKDAYS, vocabTypeInfo, posInfo, REVIEW_GAP, dueList, speakWord, speechReady, primeSpeech, ListenPlayer, stripMarkup, splitTermList, STUDY_ACCENT, SLEEP_ACCENT, MOODS, C, keyOf, todayKey, uid, extraWater, tint, num, show1, fmtMin, last7, lastNDays, didWorkout, emptyDay, stepsToKcal, burnedKcal, MACRO_GOALS, rd1, macroTargets, planDate, QuickWorkoutBlock, CONDITION_LABELS, SleepBlock, FoodSection, LineChart, Bars7, SheetLayer, sheet, grip, Card, GlassCard, useCountUp, Row, MiniCard, Collapsible, ConfirmX, lbl, inp, primary, ghost, stepBtn, chip, cardioInfo, posList } from "../shared.jsx";
 
 
 // ================= 오늘의 복습 =================
@@ -80,6 +81,241 @@ const reviewView = (v) => {
     </>
   );
 };
+
+
+// ================= 오늘 탭 화면 구성 =================
+// 기능을 더할 때마다 카드가 아래로만 쌓여서 18개가 됐다.
+// 사람마다 자주 보는 카드가 달라서 순서를 고정해두는 게 맞지 않는다.
+// 그래서 순서와 표시 여부를 직접 정하게 하고, 정한 값은 기기에 저장한다.
+// 숨기는 건 사용자가 직접 고른 것이라 "있는 줄도 모르는" 문제와는 다르다.
+export const TODAY_SECTIONS = [
+  { k:"review",   label:"오늘의 복습",      desc:"복습할 단어 수" },
+  { k:"plan",     label:"오늘 계획",        desc:"계획 모드에서 배정한 것" },
+  { k:"vocab",    label:"단어 복습",        desc:"여기서 바로 복습" },
+  { k:"kcal",     label:"칼로리",           desc:"섭취·소모·밸런스" },
+  { k:"macro",    label:"영양",             desc:"탄단지 비율" },
+  { k:"food",     label:"식단",             desc:"오늘 먹은 것" },
+  { k:"water",    label:"물 섭취",          desc:"" },
+  { k:"log",      label:"오늘 운동·공부",    desc:"" },
+  { k:"quick",    label:"퀵 운동 기록",      desc:"부위별 세트수" },
+  { k:"recovery", label:"회복 상태",        desc:"주간 운동 목표" },
+  { k:"mind",     label:"컨디션·습관·일기",  desc:"" },
+  { k:"report",   label:"이번 주 리포트",    desc:"" },
+];
+const DEFAULT_ORDER = TODAY_SECTIONS.map(s=>s.k);
+
+// 저장된 순서에 새 카드가 빠져 있을 수 있다(업데이트로 카드가 늘어난 경우).
+// 빠진 건 원래 자리 근처에 되돌려 넣어야 조용히 사라지지 않는다.
+export function resolveOrder(saved) {
+  const arr = Array.isArray(saved) ? saved.filter(k=>DEFAULT_ORDER.includes(k)) : [];
+  const missing = DEFAULT_ORDER.filter(k=>!arr.includes(k));
+  if (!arr.length) return [...DEFAULT_ORDER];
+  const out = [...arr];
+  missing.forEach((k)=>{
+    const at = DEFAULT_ORDER.indexOf(k);
+    // 기본 순서에서 바로 앞에 있던 카드 뒤에 끼워 넣는다
+    let pos = -1;
+    for (let i = at-1; i >= 0 && pos < 0; i--) {
+      const p = out.indexOf(DEFAULT_ORDER[i]);
+      if (p >= 0) pos = p + 1;
+    }
+    // 앞쪽에 아무것도 없으면(기본 순서상 맨 앞 카드였던 경우) 뒤쪽 이웃 앞에 넣는다.
+    // 이걸 빼먹으면 위에 있어야 할 카드가 목록 맨 끝으로 밀린다.
+    if (pos < 0) {
+      for (let i = at+1; i < DEFAULT_ORDER.length && pos < 0; i++) {
+        const p = out.indexOf(DEFAULT_ORDER[i]);
+        if (p >= 0) pos = p;
+      }
+    }
+    out.splice(pos < 0 ? out.length : pos, 0, k);
+  });
+  return out;
+}
+
+function LayoutSheet({ order, hidden, onChange, onClose }) {
+  const move = (i, d) => {
+    const next = [...order];
+    const j = i + d;
+    if (j < 0 || j >= next.length) return;
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next, hidden);
+  };
+  const toggle = (k) => {
+    const next = hidden.includes(k) ? hidden.filter(x=>x!==k) : [...hidden, k];
+    onChange(order, next);
+  };
+  return (
+    <SheetLayer onClose={onClose}>
+      <div onClick={(e)=>e.stopPropagation()} style={sheet}>
+        <div style={{ flexShrink:0 }}>
+          <div style={grip} />
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6 }}>
+            <span style={{ fontSize:16, fontWeight:800 }}>화면 정리</span>
+            <button onClick={()=>onChange([...DEFAULT_ORDER], [])}
+              style={{ background:"none", border:"none", color:C.muted, fontSize:11.5,
+                cursor:"pointer", textDecoration:"underline" }}>기본으로</button>
+          </div>
+          <div style={{ fontSize:11, color:C.muted, marginBottom:10, lineHeight:1.55 }}>
+            자주 쓰는 카드를 위로 올리고, 안 쓰는 건 숨기세요. 숨겨도 기록은 그대로 남아요.
+          </div>
+        </div>
+        <div style={{ overflowY:"auto", flex:1, minHeight:0 }}>
+          {order.map((k, i)=>{
+            const s = TODAY_SECTIONS.find(x=>x.k===k);
+            if (!s) return null;
+            const off = hidden.includes(k);
+            return (
+              <div key={k} style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 0",
+                borderBottom:`1px solid ${C.line}`, opacity: off?0.45:1 }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:700 }}>{s.label}</div>
+                  {s.desc && <div style={{ fontSize:10.5, color:C.muted, marginTop:2 }}>{s.desc}</div>}
+                </div>
+                <button onClick={()=>toggle(k)}
+                  style={{ flexShrink:0, padding:"6px 10px", borderRadius:8, cursor:"pointer", fontSize:11, fontWeight:800,
+                    background: off?"transparent":tint(TYPES.legs.color,0.14),
+                    border:`1px solid ${off?C.line:tint(TYPES.legs.color,0.4)}`,
+                    color: off?C.muted:TYPES.legs.color }}>
+                  {off?"숨김":"표시"}
+                </button>
+                <button onClick={()=>move(i,-1)} disabled={i===0}
+                  style={{ flexShrink:0, width:34, height:34, borderRadius:8, cursor:"pointer",
+                    background:C.surface2, border:`1px solid ${C.line}`, color:C.muted,
+                    fontSize:14, opacity:i===0?0.3:1 }}>↑</button>
+                <button onClick={()=>move(i,1)} disabled={i===order.length-1}
+                  style={{ flexShrink:0, width:34, height:34, borderRadius:8, cursor:"pointer",
+                    background:C.surface2, border:`1px solid ${C.line}`, color:C.muted,
+                    fontSize:14, opacity:i===order.length-1?0.3:1 }}>↓</button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </SheetLayer>
+  );
+}
+
+
+// ================= 설정 허브 =================
+// 프로필·목표는 몸 탭 위쪽, 백업·동기화는 아래쪽, API 키는 접힌 채 맨 끝,
+// 화면 정리는 오늘 탭 — 이렇게 흩어져 있어서 "어디서 바꾸더라"를 매번 헤맸다.
+// 한 곳에 목록으로 모으고, 고르면 해당 카드까지 데려다준다.
+function SettingsSheet({ onClose, onLayout, goToTab, hiddenCount }) {
+  const go = (focus) => { onClose(); goToTab("body", focus); };
+  const Item = ({ icon, label, desc, right, onClick }) => (
+    <button onClick={onClick} style={{ display:"flex", alignItems:"center", gap:11, width:"100%",
+      padding:"13px 2px", background:"none", border:"none", borderBottom:`1px solid ${C.line}`,
+      cursor:"pointer", textAlign:"left", color:C.text }}>
+      <span style={{ fontSize:18, flexShrink:0 }}>{icon}</span>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontSize:13.5, fontWeight:700 }}>{label}</div>
+        {desc && <div style={{ fontSize:10.5, color:C.muted, marginTop:2, lineHeight:1.45 }}>{desc}</div>}
+      </div>
+      {right && <span style={{ fontSize:10.5, color:C.muted, flexShrink:0 }}>{right}</span>}
+      <span style={{ fontSize:14, color:C.muted, flexShrink:0 }}>›</span>
+    </button>
+  );
+  return (
+    <SheetLayer onClose={onClose}>
+      <div onClick={(e)=>e.stopPropagation()} style={sheet}>
+        <div style={{ flexShrink:0 }}>
+          <div style={grip} />
+          <div style={{ fontSize:16, fontWeight:800, marginBottom:12 }}>설정</div>
+        </div>
+        <div style={{ overflowY:"auto", flex:1, minHeight:0 }}>
+          <Item icon="🎛" label="화면 정리" desc="오늘 탭 카드 순서·표시"
+            right={hiddenCount>0 ? `${hiddenCount}개 숨김` : ""}
+            onClick={()=>{ onClose(); onLayout(); }} />
+          <Item icon="👤" label="프로필 · 목표" desc="키·나이·활동량·목표 잉여 칼로리"
+            onClick={()=>go("profile")} />
+          <Item icon="☁️" label="기기 간 동기화" desc="폰과 PC의 기록 맞추기"
+            onClick={()=>go("cloud")} />
+          <Item icon="💾" label="백업 · 복원" desc="파일로 내보내고 되돌리기"
+            onClick={()=>go("backup")} />
+          <Item icon="🤖" label="AI 기능 · API 키" desc="음식·단어 자동 채우기 (선택)"
+            onClick={()=>go("api")} />
+        </div>
+        <div style={{ flexShrink:0, fontSize:10, color:C.muted, paddingTop:11, lineHeight:1.55 }}>
+          고르면 해당 화면까지 데려다줘요.
+        </div>
+      </div>
+    </SheetLayer>
+  );
+}
+
+
+// ================= 통합 검색 =================
+// 기록은 계속 쌓이는데 되찾을 방법이 없었다. "닭가슴살 언제 먹었지", "벤치 몇 kg까지 들었지"를
+// 알려면 캘린더를 손으로 넘기거나 탭마다 따로 검색해야 했다. 한 번에 훑게 한다.
+function SearchSheet({ data, onClose, goToTab }) {
+  const [q, setQ] = useState("");
+  const [res, setRes] = useState({ ok:false, groups:[], total:0 });
+  const inputRef = useRef(null);
+
+  useEffect(()=>{ const t = setTimeout(()=>inputRef.current && inputRef.current.focus(), 120); return ()=>clearTimeout(t); }, []);
+  // 글자마다 전체 기록을 훑으면 입력이 버벅인다. 손을 멈춘 뒤에 한 번만 돌린다.
+  useEffect(()=>{
+    const t = setTimeout(()=>setRes(searchAll(data, q)), 180);
+    return ()=>clearTimeout(t);
+  }, [q, data]);
+
+  return (
+    <SheetLayer onClose={onClose}>
+      <div onClick={(e)=>e.stopPropagation()} style={sheet}>
+        <div style={{ flexShrink:0 }}>
+          <div style={grip} />
+          <input ref={inputRef} value={q} onChange={(e)=>setQ(e.target.value)}
+            placeholder="기록 전체 검색 — 음식·운동·단어·일기"
+            style={{...inp, width:"100%", boxSizing:"border-box", fontSize:14}} />
+          {res.ok && (
+            <div style={{ fontSize:10.5, color:C.muted, margin:"8px 0 4px" }}>
+              {res.total>0 ? `${res.total}건` : "결과가 없어요"}
+            </div>
+          )}
+        </div>
+        <div style={{ overflowY:"auto", flex:1, minHeight:0 }}>
+          {!q.trim() && (
+            <div style={{ fontSize:11.5, color:C.muted, lineHeight:1.75, padding:"14px 2px" }}>
+              먹은 것 · 운동 종목 · 부위 · 단어 · 일기 · 메모를 한 번에 찾아요.<br/>
+              같은 이름이 여러 날 나오면 <b style={{color:C.text}}>몇 번 · 마지막 언제</b>로 묶어서 보여줘요.
+            </div>
+          )}
+          {res.groups.map((g)=>(
+            <div key={g.key} style={{ marginBottom:14 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:7, padding:"6px 0",
+                borderBottom:`1.5px solid ${C.line}`, marginBottom:2 }}>
+                <span style={{ fontSize:12, fontWeight:800 }}>{g.icon} {g.label}</span>
+                <span style={{ fontSize:10.5, color:C.muted }}>{g.items.length}</span>
+              </div>
+              {g.shown.map((it, i)=>(
+                <button key={i}
+                  onClick={()=>{ onClose(); goToTab(g.key==="vocab" ? "study" : g.key==="study" ? "study" : "calendar"); }}
+                  style={{ display:"flex", alignItems:"center", gap:9, width:"100%", padding:"10px 2px",
+                    background:"none", border:"none", borderBottom:`1px solid ${C.line}`,
+                    cursor:"pointer", textAlign:"left", color:C.text }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:700, wordBreak:"break-word" }}>{it.title}</div>
+                    <div style={{ fontSize:10.5, color:C.muted, marginTop:2, lineHeight:1.45,
+                      wordBreak:"break-word" }}>{it.sub}</div>
+                  </div>
+                  <div style={{ flexShrink:0, textAlign:"right" }}>
+                    {it.count>1 && (
+                      <div style={{ fontSize:10.5, fontWeight:800, color:STUDY_ACCENT }}>{it.count}회</div>
+                    )}
+                    {(it.last || it.date) && (
+                      <div style={{ fontSize:10, color:C.muted, marginTop:1 }}>{searchFmtDate(it.last || it.date)}</div>
+                    )}
+                    {it.tag && !it.date && <div style={{ fontSize:10, color:C.muted }}>{it.tag}</div>}
+                  </div>
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </SheetLayer>
+  );
+}
 
 export default function Today({ data, updateDay, addFoodsToday, target, tdee, weight, favProps, apiKey, customFoods, mutate, goToTab }) {
   const k = todayKey();
@@ -180,6 +416,350 @@ export default function Today({ data, updateDay, addFoodsToday, target, tdee, we
     prevCelebRef.current = celebrate;
   }, [celebrate]);
 
+  const sectionNodes = {
+    review: (
+        <ReviewCard vocab={data.vocab} goToTab={goToTab} />
+    ),
+    plan: (
+        // 오늘 계획 
+        todayPlans.length>0 && (
+          <Card>
+            <Row><span style={lbl}>오늘 계획</span>
+              <span style={{ fontSize:11.5, color: planDoneCount===todayPlans.length?TYPES.legs.color:C.muted, fontWeight:700 }}>
+                {planDoneCount}/{todayPlans.length} 완료{planDoneCount===todayPlans.length?" 🎉":""}
+              </span>
+            </Row>
+            <div style={{ display:"flex", flexDirection:"column", gap:6, marginTop:10 }}>
+              {todayPlans.map((p)=>{
+                const done = !!p.done;
+                const now = new Date();
+                const st = planDate(k, p.start);
+                const soon = !done && st>now && (st-now) < 2*60*60*1000;
+                const past = !done && st<now;
+                return (
+                  <div key={p.id} onClick={()=>togglePlanDone(p.id)}
+                    style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:11, cursor:"pointer",
+                      background: done?tint(TYPES.legs.color,0.1):C.surface2,
+                      border:`1px solid ${done?tint(TYPES.legs.color,0.4):soon?tint(STUDY_ACCENT,0.45):C.line}`, transition:"all .2s" }}>
+                    <div style={{ width:21, height:21, borderRadius:"50%", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center",
+                      background: done?TYPES.legs.color:"transparent", border:`2px solid ${done?TYPES.legs.color:C.muted}`,
+                      color:"#141519", fontSize:12, fontWeight:900 }}>{done?"✓":""}</div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:800, color: done?C.muted:C.text,
+                        textDecoration: done?"line-through":"none", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.title}</div>
+                      <div style={{ fontSize:10.5, color: soon?STUDY_ACCENT:C.muted, marginTop:2, fontWeight: soon?700:400 }}>
+                        {p.start}{p.end?`~${p.end}`:""}{soon?" · 곧 시작":past?" · 지난 일정":""}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        )
+    ),
+    vocab: (
+        // 오늘 단어 복습 — 공부 탭까지 안 들어가도 여기서 바로 (번거로움 제거) 
+        <VocabTodayCard vocab={data.vocab||[]} goal={num(data.vocabGoal)||20} mutate={mutate} />
+    ),
+    kcal: (
+        // 칼로리 판정 
+        <Card>
+          <Row><span style={lbl}>칼로리 밸런스</span>
+            {tdee!=null && <span style={{ fontSize:12, color:C.muted }}>유지 {tdee}kcal</span>}
+          </Row>
+          {tdee==null ? (
+            <div style={{ color:C.muted, fontSize:13, marginTop:6 }}>몸 탭에서 키·나이·성별을 입력하면 잉여/적자를 계산해줘요.</div>
+          ) : (
+            <>
+              <div style={{ display:"flex", alignItems:"baseline", gap:8, marginTop:4 }}>
+                <span style={{ fontSize:30, fontWeight:800, color: net>=0?TYPES.legs.color:C.danger }}>
+                  {net>=0?"+":""}<CountUp value={net} />
+                </span>
+                <span style={{ fontSize:15, color:C.muted }}>kcal · {net>=0?"잉여":"적자"}</span>
+              </div>
+              <div style={{ fontSize:12, color:C.muted, marginTop:6 }}>
+                섭취 {Math.round(kcalIn)} · 소모 {Math.round(kcalOut)} · 목표 잉여 {surplus>=0?"+":""}{surplus}
+                {" · "}
+                <span style={{ color: net>=surplus?TYPES.legs.color:C.amber }}>
+                  {net>=surplus ? "목표 달성" : `목표까지 ${surplus-net}kcal`}
+                </span>
+              </div>
+            </>
+          )}
+  
+          // 주간 칼로리 뱅킹 — 하루 넘겨도 주 단위로 보면 만회 가능 
+          {(()=>{
+            const bank = calorieBank(data.schedule, weight, tdee, surplus);
+            if (!bank || bank.logged < 2) return null;
+            const over = bank.diff > 0;
+            const col = bank.onTrack ? TYPES.legs.color : over ? C.amber : "#6BA8FF";
+            return (
+              <div style={{ marginTop:12, padding:"10px 12px", borderRadius:10,
+                background:tint(col,0.09), border:`1px solid ${tint(col,0.3)}` }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
+                  <span style={{ fontSize:11, color:C.muted, fontWeight:700 }}>이번 주 누적</span>
+                  <span style={{ fontSize:12.5, fontWeight:800, color:col }}>
+                    {over?"+":""}{bank.diff}kcal
+                  </span>
+                </div>
+                <div style={{ fontSize:11, color:C.muted, marginTop:5, lineHeight:1.6 }}>
+                  {bank.onTrack
+                    ? "주간 평균이 목표에 잘 맞고 있어요 👍"
+                    : bank.remain > 0
+                      ? `남은 ${bank.remain}일 동안 하루 ${bank.perRemain}kcal씩 먹으면 주간 목표에 맞아요.`
+                      : over ? "이번 주는 목표보다 많이 먹었어요. 다음 주에 조절해봐요."
+                             : "이번 주는 목표보다 적게 먹었어요. 벌크 중이면 조금 더 채워보세요."}
+                </div>
+              </div>
+            );
+          })()}
+  
+          // 걸음수 → 소모 칼로리 
+          <div style={{ marginTop:14, paddingTop:14, borderTop:`1px solid ${C.line}` }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:9 }}>
+              <span style={{ fontSize:12, fontWeight:800, color:C.muted }}>🚶 걸음수</span>
+              {stepsKcal>0 && <span style={{ fontSize:12, fontWeight:800, color:"#5AD1A0" }}>≈ {stepsKcal}kcal 소모</span>}
+            </div>
+            <div style={{ display:"flex", gap:7, alignItems:"center" }}>
+              <div style={{ flex:1, minWidth:0, display:"flex", alignItems:"center", background:C.surface2, borderRadius:10, padding:"0 12px" }}>
+                <input value={day.steps ? String(day.steps) : ""} onChange={(e)=>updateDay(k,{steps:Math.max(0,Math.min(100000,Math.round(num(e.target.value.replace(/[^0-9]/g,"")))))})}
+                  inputMode="numeric" placeholder="0"
+                  style={{ flex:1, minWidth:0, background:"none", border:"none", outline:"none", color:C.text, fontSize:19, fontWeight:800, padding:"11px 0" }} />
+                <span style={{ fontSize:12, color:C.muted, fontWeight:700 }}>보</span>
+              </div>
+              <div style={{ display:"flex", gap:5 }}>
+                {[1000,3000,5000].map((n)=>(
+                  <button key={n} onClick={()=>updateDay(k,{steps:(num(day.steps)||0)+n})}
+                    style={{...chip(false,"#5AD1A0"), padding:"9px 9px", fontSize:11.5}}>+{n/1000}천</button>
+                ))}
+              </div>
+            </div>
+            {day.steps>0 ? (
+              <div style={{ fontSize:10.5, color:C.muted, marginTop:7, lineHeight:1.5 }}>
+                {weight?`체중 ${weight}kg`:"체중 70kg 가정"} 기준 걷기 소모량이에요. 위 칼로리 밸런스에 이미 반영돼 있어요.
+                <button onClick={()=>updateDay(k,{steps:0})} style={{ background:"none", border:"none", color:C.danger, fontSize:10.5, fontWeight:700, cursor:"pointer", padding:"0 0 0 6px" }}>지우기</button>
+              </div>
+            ) : (
+              <div style={{ fontSize:10.5, color:C.muted, marginTop:7, lineHeight:1.5 }}>
+                휴대폰 건강앱의 걸음수를 입력하면 소모 칼로리로 자동 계산돼요.
+              </div>
+            )}
+          </div>
+        </Card>
+    ),
+    macro: (
+        // 영양 
+        <Card>
+          <Row><span style={lbl}>영양</span>
+            <span style={{ fontSize:13, color:C.muted }}>{target?`단백질 목표 ${target.low}~${target.high}g`:"몸무게 입력 필요"}</span>
+          </Row>
+          <div style={{ fontSize:30, fontWeight:800, marginTop:2 }}><CountUp value={proteinSum} /><span style={{ fontSize:15, color:C.muted }}>g 단백질</span></div>
+          <div style={{ height:8, background:C.surface2, borderRadius:99, marginTop:8, overflow:"hidden" }}>
+            <div style={{ width:`${pct}%`, height:"100%", background:TYPES.legs.color, borderRadius:99, transition:"width .3s" }} />
+          </div>
+          <NutriRow label="탄수화물" value={carbsSum} target={mt?mt.carb:null} color="#5AA9FF" overType="soft" />
+          <NutriRow label="지방" value={fatSum} target={mt?mt.fat:null} color="#FFB74B" overType="soft" />
+          <NutriRow label="당류" value={sugarSum} target={mt?mt.sugar:null} color="#FF8FB0" overType="hard" capLabel="상한" />
+  
+          // 탄단지 비율 
+          <MacroRatio carbs={carbsSum} protein={proteinSum} fat={fatSum}
+            goal={MACRO_GOALS[data.profile.macroGoal] || MACRO_GOALS.lean} />
+  
+          <div style={{ fontSize:11, color:C.muted, margin:"16px 0 4px" }}>최근 7일 단백질</div>
+          <Bars7 values={proteinByDay} color={TYPES.legs.color} target={target?target.low:null} suffix="g" />
+        </Card>
+    ),
+    food: (
+        // 식단 
+        <Card>
+          <Row><span style={lbl}>먹은 음식</span></Row>
+          <FoodSection foods={day.foods}
+            addFoods={(items)=>updateDay(k,{foods:[...day.foods, ...items], water:(day.water||0)+extraWater(items)})}
+            removeFood={(id)=>{ const f=day.foods.find(x=>x.id===id);
+              updateDay(k,{foods:day.foods.filter(x=>x.id!==id)}, f?`"${f.name}"`:"음식"); }}
+            updateFood={(id,patch)=>updateDay(k,{foods:day.foods.map(f=>f.id===id?{...f,...patch}:f)})}
+            apiKey={apiKey} customFoods={customFoods}
+            {...favProps} />
+        </Card>
+    ),
+    water: (
+        // 물 섭취 
+        <Card>
+          <Row><span style={lbl}>물</span>
+            <span style={{ fontSize:12, color:C.muted }}>1잔 = 250ml</span>
+          </Row>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:8 }}>
+            <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
+              <span style={{ fontSize:26, fontWeight:800, color:"#6BC5F0" }}>{((day.water||0)*0.25).toFixed(2).replace(/\.?0+$/,"")}L</span>
+              <span style={{ fontSize:13, color:C.muted }}>{day.water||0}잔</span>
+            </div>
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={()=>updateDay(k,{water:Math.max(0,(day.water||0)-1)})} style={{...stepBtn, width:38, height:38, fontSize:18}}>–</button>
+              <button onClick={()=>updateDay(k,{water:(day.water||0)+1})} style={{...primary("#6BC5F0"), width:64, padding:"0"}}>+1잔</button>
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:4, marginTop:10 }}>
+            {[...Array(8)].map((_,i)=>(
+              <div key={i} style={{ flex:1, height:6, borderRadius:99, background:(day.water||0)>i?"#6BC5F0":C.surface2, transition:"background .25s" }} />
+            ))}
+          </div>
+        </Card>
+    ),
+    log: (
+        // 오늘 운동 / 공부 — 요약 두 칸과 상세 카드가 한 묶음이라 프래그먼트로 감싼다
+        <>
+        <div style={{ display:"flex", gap:10 }}>
+          <div style={{ flex:1, minWidth:0 }}>
+            <MiniCard label="오늘 운동"
+              value={ t ? (day.type==="custom"&&day.parts.length?day.parts.join("·"):t.label)
+                    : Object.keys(day.partSets||{}).length>0 ? `${Object.values(day.partSets).reduce((s,v)=>s+num(v),0)}세트`
+                    : day.mainLift?.name ? day.mainLift.name : "미설정" }
+              unit="" color={ t ? t.color : didWorkout(day) ? TYPES.push.color : C.muted } />
+          </div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <MiniCard label="오늘 공부" value={studyToday?fmtMin(studyToday):"0분"} unit="" color={STUDY_ACCENT} />
+          </div>
+        </div>
+        {(day.cardio || day.lifts.length>0 || Object.keys(day.partSets||{}).length>0) && (
+          <Card>
+            {day.cardio && <div style={{ fontSize:13, color:cardioInfo(day.cardio.type).color, fontWeight:700 }}>
+              유산소 · {cardioInfo(day.cardio.type).label} {day.cardio.min}분 {num(day.cardio.kcal)>0?`· ${num(day.cardio.kcal)}kcal`:""}</div>}
+            {Object.keys(day.partSets||{}).length>0 && (
+              <div style={{ fontSize:13, marginTop:day.cardio?6:0 }}>
+                <b style={{ color:TYPES.push.color }}>부위</b>{" "}
+                <span style={{ color:C.muted }}>{Object.entries(day.partSets).map(([p,s])=>`${p} ${s}세트`).join(" · ")}</span>
+              </div>
+            )}
+            {day.lifts.map((l)=>(
+              <div key={l.id} style={{ fontSize:13, marginTop:6 }}>
+                <b>{l.name}</b> <span style={{ color:C.muted }}>{l.sets.map((s)=>`${s.w}×${s.r}`).join(", ")}</span>
+              </div>
+            ))}
+          </Card>
+        )}
+        </>
+    ),
+    quick: (
+        // 퀵 운동 기록 
+        <Card>
+          <Row><span style={lbl}>퀵 운동 기록</span>
+            {day.mainLift?.name && <span style={{ fontSize:12, color:TYPES.push.color, fontWeight:700 }}>{day.mainLift.name} {day.mainLift.w}kg×{day.mainLift.r}</span>}
+          </Row>
+          <div style={{ marginTop:10 }}>
+            <QuickWorkoutBlock partSets={day.partSets} mainLift={day.mainLift}
+              onChangePartSets={(v)=>updateDay(k,{partSets:v})}
+              onChangeMainLift={(v)=>updateDay(k,{mainLift:v})} schedule={data.schedule} />
+          </div>
+          {day.mainLift?.name && (()=>{
+            const hist = mainLiftHistory(data.schedule, day.mainLift.name);
+            return hist.length>=2 ? (<>
+              <div style={{ fontSize:11, color:C.muted, margin:"14px 0 2px" }}>{day.mainLift.name} 추이</div>
+              <LineChart points={hist} color={TYPES.push.color} unit="kg" />
+            </>) : null;
+          })()}
+        </Card>
+    ),
+    recovery: (
+        // 회복 상태 + 주간 운동 목표 
+        <RecoveryCard schedule={data.schedule} weekGoals={data.weekGoals} mutate={mutate} days={days} measurements={data.measurements} />
+    ),
+    mind: (
+        // 컨디션 · 습관 · 일기 (접이식 묶음) — 하루 한 번만 쓰는 것들 
+  <>
+        <Collapsible title="컨디션 · 습관 · 일기" accent={SLEEP_ACCENT} openSignal={sleepOpen}
+          summary={[
+            todaySleep?.hours ? `수면 ${todaySleep.hours}h` : null,
+            day.mood ? MOODS.find(m=>m.v===day.mood)?.emoji : null,
+            data.habits.length>0 ? `습관 ${Object.values(day.habitLog||{}).filter(Boolean).length}/${data.habits.length}` : null,
+            day.diary ? "일기 ✓" : null,
+          ].filter(Boolean).join(" · ") || "아직 기록 없음"}>
+  
+        // 수면 · 컨디션 
+        <Card>
+          <Row><span style={lbl}>수면 · 컨디션</span>
+            {todaySleep?.condition && <span style={{ fontSize:12, color:SLEEP_ACCENT, fontWeight:700 }}>{CONDITION_LABELS[todaySleep.condition]}</span>}
+          </Row>
+          <SleepBlock value={todaySleep} onChange={(v)=>updateDay(k,{sleep:v})} />
+          <div style={{ fontSize:11, color:C.muted, margin:"14px 0 4px" }}>최근 7일 수면</div>
+          <Bars7 values={sleepByDay} color={SLEEP_ACCENT} />
+        </Card>
+  
+        // 기분 
+        <Card>
+          <Row><span style={lbl}>오늘 기분</span>
+            {day.mood && <span style={{ fontSize:12, color:C.muted }}>{MOODS.find(m=>m.v===day.mood)?.label}</span>}
+          </Row>
+          <div style={{ display:"flex", gap:6, marginTop:10 }}>
+            {MOODS.map((m)=>(
+              <button key={m.v} onClick={()=>updateDay(k,{mood: day.mood===m.v?null:m.v})} style={{
+                flex:1, padding:"10px 0", borderRadius:12, cursor:"pointer", transition:"all .2s",
+                border:`1.5px solid ${day.mood===m.v?m.color:C.line}`,
+                background: day.mood===m.v?tint(m.color,0.15):C.surface2,
+                display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
+                <span style={{ fontSize:22, filter:day.mood===m.v?"none":"grayscale(0.4)" }}>{m.emoji}</span>
+                <span style={{ fontSize:9.5, color:day.mood===m.v?m.color:C.muted, fontWeight:700 }}>{m.label}</span>
+              </button>
+            ))}
+          </div>
+        </Card>
+  
+        // 습관 트래커 
+        <Card>
+          <Row><span style={lbl}>습관</span>
+            {data.habits.length>0 && <span style={{ fontSize:12, color:C.muted }}>{Object.values(day.habitLog||{}).filter(Boolean).length}/{data.habits.length} 완료</span>}
+          </Row>
+          <HabitTracker habits={data.habits} log={day.habitLog||{}}
+            onToggle={(id)=>updateDay(k,{ habitLog:{ ...(day.habitLog||{}), [id]: !(day.habitLog||{})[id] } })}
+            onAddHabit={(name,emoji)=>mutate((prev)=>({ ...prev, habits:[...prev.habits, { id:uid(), name, emoji }] }))}
+            onRemoveHabit={(id)=>{ const h=(data.habits||[]).find(x=>x.id===id);
+              mutate((prev)=>({ ...prev, habits:prev.habits.filter(x=>x.id!==id) }), h?`습관 "${h.name}"`:"습관"); }} />
+        </Card>
+  
+        // 한 줄 일기 
+        <Card>
+          <Row><span style={lbl}>한 줄 일기</span></Row>
+          <textarea value={day.diary||""} onChange={(e)=>updateDay(k,{diary:e.target.value})} rows={2}
+            placeholder="오늘 하루 어땠나요? 기록해두면 나중에 돌아보기 좋아요."
+            style={{...inp, width:"100%", boxSizing:"border-box", resize:"none", lineHeight:1.5, marginTop:10, fontFamily:"inherit"}} />
+        </Card>
+        </Collapsible>
+        </>
+    ),
+    report: (
+        // 이번 주 리포트 (접이식) 
+        <Card>
+          <div onClick={()=>setReportOpen((v)=>!v)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", cursor:"pointer" }}>
+            <span style={lbl}>이번 주 리포트</span>
+            <span style={{ fontSize:14, color:C.muted, transform:reportOpen?"rotate(180deg)":"none", transition:"transform .2s" }}>▾</span>
+          </div>
+          {reportOpen && (
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginTop:12 }}>
+              <ReportItem label="운동일" value={`${workoutDays}/7`} color={TYPES.legs.color} />
+              <ReportItem label="유산소" value={`${cardioSessions}회`} color={C.amber} />
+              <ReportItem label="평균 단백질" value={`${avgProtein}g`} color={TYPES.legs.color} />
+              <ReportItem label="평균 칼로리" value={avgNet!=null?`${avgNet>=0?"+":""}${avgNet}`:"—"} color={avgNet!=null&&avgNet>=0?TYPES.legs.color:C.danger} />
+              <ReportItem label="공부시간" value={fmtMin(weekStudyMin)} color={STUDY_ACCENT} />
+              <ReportItem label="체중 변화" value={weightDiff!=null?`${weightDiff>=0?"+":""}${weightDiff.toFixed(1)}kg`:"—"} color={weightDiff!=null&&weightDiff>=0?TYPES.push.color:TYPES.pull.color} />
+            </div>
+          )}
+        </Card>
+    ),
+  };
+
+  const layout = data.todayLayout || {};
+  const order = resolveOrder(layout.order);
+  const hidden = Array.isArray(layout.hidden) ? layout.hidden : [];
+  const saveLayout = (nextOrder, nextHidden) =>
+    mutate((prev)=>({ ...prev, todayLayout: { order: nextOrder, hidden: nextHidden } }));
+  const [layoutOpen, setLayoutOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const renderSections = () =>
+    order.filter(k=>!hidden.includes(k)).map(k=>(
+      <Fragment key={k}>{sectionNodes[k]}</Fragment>
+    ));
+
   return (
     <div style={{ padding:"22px 18px 8px" }}>
       <Confetti fire={confettiKey} />
@@ -257,317 +837,33 @@ export default function Today({ data, updateDay, addFoodsToday, target, tdee, we
         <Mascot score={dayScore} proteinPct={proteinPct} workedOut={didWorkout(day)} />
       </GlassCard>
 
-      <ReviewCard vocab={data.vocab} goToTab={goToTab} />
+      {renderSections()}
 
-      {/* 오늘 계획 */}
-      {todayPlans.length>0 && (
-        <Card>
-          <Row><span style={lbl}>오늘 계획</span>
-            <span style={{ fontSize:11.5, color: planDoneCount===todayPlans.length?TYPES.legs.color:C.muted, fontWeight:700 }}>
-              {planDoneCount}/{todayPlans.length} 완료{planDoneCount===todayPlans.length?" 🎉":""}
-            </span>
-          </Row>
-          <div style={{ display:"flex", flexDirection:"column", gap:6, marginTop:10 }}>
-            {todayPlans.map((p)=>{
-              const done = !!p.done;
-              const now = new Date();
-              const st = planDate(k, p.start);
-              const soon = !done && st>now && (st-now) < 2*60*60*1000;
-              const past = !done && st<now;
-              return (
-                <div key={p.id} onClick={()=>togglePlanDone(p.id)}
-                  style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:11, cursor:"pointer",
-                    background: done?tint(TYPES.legs.color,0.1):C.surface2,
-                    border:`1px solid ${done?tint(TYPES.legs.color,0.4):soon?tint(STUDY_ACCENT,0.45):C.line}`, transition:"all .2s" }}>
-                  <div style={{ width:21, height:21, borderRadius:"50%", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center",
-                    background: done?TYPES.legs.color:"transparent", border:`2px solid ${done?TYPES.legs.color:C.muted}`,
-                    color:"#141519", fontSize:12, fontWeight:900 }}>{done?"✓":""}</div>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:13, fontWeight:800, color: done?C.muted:C.text,
-                      textDecoration: done?"line-through":"none", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.title}</div>
-                    <div style={{ fontSize:10.5, color: soon?STUDY_ACCENT:C.muted, marginTop:2, fontWeight: soon?700:400 }}>
-                      {p.start}{p.end?`~${p.end}`:""}{soon?" · 곧 시작":past?" · 지난 일정":""}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-      )}
-
-      {/* 오늘 단어 복습 — 공부 탭까지 안 들어가도 여기서 바로 (번거로움 제거) */}
-      <VocabTodayCard vocab={data.vocab||[]} goal={num(data.vocabGoal)||20} mutate={mutate} />
-
-      {/* 칼로리 판정 */}
-      <Card>
-        <Row><span style={lbl}>칼로리 밸런스</span>
-          {tdee!=null && <span style={{ fontSize:12, color:C.muted }}>유지 {tdee}kcal</span>}
-        </Row>
-        {tdee==null ? (
-          <div style={{ color:C.muted, fontSize:13, marginTop:6 }}>몸 탭에서 키·나이·성별을 입력하면 잉여/적자를 계산해줘요.</div>
-        ) : (
-          <>
-            <div style={{ display:"flex", alignItems:"baseline", gap:8, marginTop:4 }}>
-              <span style={{ fontSize:30, fontWeight:800, color: net>=0?TYPES.legs.color:C.danger }}>
-                {net>=0?"+":""}<CountUp value={net} />
-              </span>
-              <span style={{ fontSize:15, color:C.muted }}>kcal · {net>=0?"잉여":"적자"}</span>
-            </div>
-            <div style={{ fontSize:12, color:C.muted, marginTop:6 }}>
-              섭취 {Math.round(kcalIn)} · 소모 {Math.round(kcalOut)} · 목표 잉여 {surplus>=0?"+":""}{surplus}
-              {" · "}
-              <span style={{ color: net>=surplus?TYPES.legs.color:C.amber }}>
-                {net>=surplus ? "목표 달성" : `목표까지 ${surplus-net}kcal`}
-              </span>
-            </div>
-          </>
-        )}
-
-        {/* 주간 칼로리 뱅킹 — 하루 넘겨도 주 단위로 보면 만회 가능 */}
-        {(()=>{
-          const bank = calorieBank(data.schedule, weight, tdee, surplus);
-          if (!bank || bank.logged < 2) return null;
-          const over = bank.diff > 0;
-          const col = bank.onTrack ? TYPES.legs.color : over ? C.amber : "#6BA8FF";
-          return (
-            <div style={{ marginTop:12, padding:"10px 12px", borderRadius:10,
-              background:tint(col,0.09), border:`1px solid ${tint(col,0.3)}` }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
-                <span style={{ fontSize:11, color:C.muted, fontWeight:700 }}>이번 주 누적</span>
-                <span style={{ fontSize:12.5, fontWeight:800, color:col }}>
-                  {over?"+":""}{bank.diff}kcal
-                </span>
-              </div>
-              <div style={{ fontSize:11, color:C.muted, marginTop:5, lineHeight:1.6 }}>
-                {bank.onTrack
-                  ? "주간 평균이 목표에 잘 맞고 있어요 👍"
-                  : bank.remain > 0
-                    ? `남은 ${bank.remain}일 동안 하루 ${bank.perRemain}kcal씩 먹으면 주간 목표에 맞아요.`
-                    : over ? "이번 주는 목표보다 많이 먹었어요. 다음 주에 조절해봐요."
-                           : "이번 주는 목표보다 적게 먹었어요. 벌크 중이면 조금 더 채워보세요."}
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* 걸음수 → 소모 칼로리 */}
-        <div style={{ marginTop:14, paddingTop:14, borderTop:`1px solid ${C.line}` }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:9 }}>
-            <span style={{ fontSize:12, fontWeight:800, color:C.muted }}>🚶 걸음수</span>
-            {stepsKcal>0 && <span style={{ fontSize:12, fontWeight:800, color:"#5AD1A0" }}>≈ {stepsKcal}kcal 소모</span>}
-          </div>
-          <div style={{ display:"flex", gap:7, alignItems:"center" }}>
-            <div style={{ flex:1, minWidth:0, display:"flex", alignItems:"center", background:C.surface2, borderRadius:10, padding:"0 12px" }}>
-              <input value={day.steps ? String(day.steps) : ""} onChange={(e)=>updateDay(k,{steps:Math.max(0,Math.min(100000,Math.round(num(e.target.value.replace(/[^0-9]/g,"")))))})}
-                inputMode="numeric" placeholder="0"
-                style={{ flex:1, minWidth:0, background:"none", border:"none", outline:"none", color:C.text, fontSize:19, fontWeight:800, padding:"11px 0" }} />
-              <span style={{ fontSize:12, color:C.muted, fontWeight:700 }}>보</span>
-            </div>
-            <div style={{ display:"flex", gap:5 }}>
-              {[1000,3000,5000].map((n)=>(
-                <button key={n} onClick={()=>updateDay(k,{steps:(num(day.steps)||0)+n})}
-                  style={{...chip(false,"#5AD1A0"), padding:"9px 9px", fontSize:11.5}}>+{n/1000}천</button>
-              ))}
-            </div>
-          </div>
-          {day.steps>0 ? (
-            <div style={{ fontSize:10.5, color:C.muted, marginTop:7, lineHeight:1.5 }}>
-              {weight?`체중 ${weight}kg`:"체중 70kg 가정"} 기준 걷기 소모량이에요. 위 칼로리 밸런스에 이미 반영돼 있어요.
-              <button onClick={()=>updateDay(k,{steps:0})} style={{ background:"none", border:"none", color:C.danger, fontSize:10.5, fontWeight:700, cursor:"pointer", padding:"0 0 0 6px" }}>지우기</button>
-            </div>
-          ) : (
-            <div style={{ fontSize:10.5, color:C.muted, marginTop:7, lineHeight:1.5 }}>
-              휴대폰 건강앱의 걸음수를 입력하면 소모 칼로리로 자동 계산돼요.
-            </div>
-          )}
-        </div>
-      </Card>
-
-      {/* 영양 */}
-      <Card>
-        <Row><span style={lbl}>영양</span>
-          <span style={{ fontSize:13, color:C.muted }}>{target?`단백질 목표 ${target.low}~${target.high}g`:"몸무게 입력 필요"}</span>
-        </Row>
-        <div style={{ fontSize:30, fontWeight:800, marginTop:2 }}><CountUp value={proteinSum} /><span style={{ fontSize:15, color:C.muted }}>g 단백질</span></div>
-        <div style={{ height:8, background:C.surface2, borderRadius:99, marginTop:8, overflow:"hidden" }}>
-          <div style={{ width:`${pct}%`, height:"100%", background:TYPES.legs.color, borderRadius:99, transition:"width .3s" }} />
-        </div>
-        <NutriRow label="탄수화물" value={carbsSum} target={mt?mt.carb:null} color="#5AA9FF" overType="soft" />
-        <NutriRow label="지방" value={fatSum} target={mt?mt.fat:null} color="#FFB74B" overType="soft" />
-        <NutriRow label="당류" value={sugarSum} target={mt?mt.sugar:null} color="#FF8FB0" overType="hard" capLabel="상한" />
-
-        {/* 탄단지 비율 */}
-        <MacroRatio carbs={carbsSum} protein={proteinSum} fat={fatSum}
-          goal={MACRO_GOALS[data.profile.macroGoal] || MACRO_GOALS.lean} />
-
-        <div style={{ fontSize:11, color:C.muted, margin:"16px 0 4px" }}>최근 7일 단백질</div>
-        <Bars7 values={proteinByDay} color={TYPES.legs.color} target={target?target.low:null} suffix="g" />
-      </Card>
-
-      {/* 식단 */}
-      <Card>
-        <Row><span style={lbl}>먹은 음식</span></Row>
-        <FoodSection foods={day.foods}
-          addFoods={(items)=>updateDay(k,{foods:[...day.foods, ...items], water:(day.water||0)+extraWater(items)})}
-          removeFood={(id)=>{ const f=day.foods.find(x=>x.id===id);
-            updateDay(k,{foods:day.foods.filter(x=>x.id!==id)}, f?`"${f.name}"`:"음식"); }}
-          updateFood={(id,patch)=>updateDay(k,{foods:day.foods.map(f=>f.id===id?{...f,...patch}:f)})}
-          apiKey={apiKey} customFoods={customFoods}
-          {...favProps} />
-      </Card>
-
-      {/* 물 섭취 */}
-      <Card>
-        <Row><span style={lbl}>물</span>
-          <span style={{ fontSize:12, color:C.muted }}>1잔 = 250ml</span>
-        </Row>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:8 }}>
-          <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
-            <span style={{ fontSize:26, fontWeight:800, color:"#6BC5F0" }}>{((day.water||0)*0.25).toFixed(2).replace(/\.?0+$/,"")}L</span>
-            <span style={{ fontSize:13, color:C.muted }}>{day.water||0}잔</span>
-          </div>
-          <div style={{ display:"flex", gap:8 }}>
-            <button onClick={()=>updateDay(k,{water:Math.max(0,(day.water||0)-1)})} style={{...stepBtn, width:38, height:38, fontSize:18}}>–</button>
-            <button onClick={()=>updateDay(k,{water:(day.water||0)+1})} style={{...primary("#6BC5F0"), width:64, padding:"0"}}>+1잔</button>
-          </div>
-        </div>
-        <div style={{ display:"flex", gap:4, marginTop:10 }}>
-          {[...Array(8)].map((_,i)=>(
-            <div key={i} style={{ flex:1, height:6, borderRadius:99, background:(day.water||0)>i?"#6BC5F0":C.surface2, transition:"background .25s" }} />
-          ))}
-        </div>
-      </Card>
-
-      {/* 오늘 운동 / 공부 */}
-      <div style={{ display:"flex", gap:10 }}>
-        <div style={{ flex:1, minWidth:0 }}>
-          <MiniCard label="오늘 운동"
-            value={ t ? (day.type==="custom"&&day.parts.length?day.parts.join("·"):t.label)
-                  : Object.keys(day.partSets||{}).length>0 ? `${Object.values(day.partSets).reduce((s,v)=>s+num(v),0)}세트`
-                  : day.mainLift?.name ? day.mainLift.name : "미설정" }
-            unit="" color={ t ? t.color : didWorkout(day) ? TYPES.push.color : C.muted } />
-        </div>
-        <div style={{ flex:1, minWidth:0 }}>
-          <MiniCard label="오늘 공부" value={studyToday?fmtMin(studyToday):"0분"} unit="" color={STUDY_ACCENT} />
-        </div>
+      {/* 설정 진입 — 카드 맨 아래. 자주 쓰는 기능이 아니라 위쪽 자리를 차지할 이유가 없다 */}
+      <div style={{ display:"flex", gap:8, marginTop:14 }}>
+        <button onClick={()=>setSearchOpen(true)}
+          style={{ flex:1, padding:"11px 0", borderRadius:11, cursor:"pointer",
+            background:"transparent", border:`1px dashed ${C.line}`, color:C.muted, fontSize:11.5, fontWeight:700 }}>
+          🔍 기록 검색
+        </button>
+        <button onClick={()=>setSettingsOpen(true)}
+          style={{ flex:1, padding:"11px 0", borderRadius:11, cursor:"pointer",
+            background:"transparent", border:`1px dashed ${C.line}`, color:C.muted, fontSize:11.5, fontWeight:700 }}>
+          ⚙️ 설정
+          {hidden.length>0 && <span style={{ marginLeft:5, opacity:0.8 }}>({hidden.length})</span>}
+        </button>
       </div>
-      {(day.cardio || day.lifts.length>0 || Object.keys(day.partSets||{}).length>0) && (
-        <Card>
-          {day.cardio && <div style={{ fontSize:13, color:cardioInfo(day.cardio.type).color, fontWeight:700 }}>
-            유산소 · {cardioInfo(day.cardio.type).label} {day.cardio.min}분 {num(day.cardio.kcal)>0?`· ${num(day.cardio.kcal)}kcal`:""}</div>}
-          {Object.keys(day.partSets||{}).length>0 && (
-            <div style={{ fontSize:13, marginTop:day.cardio?6:0 }}>
-              <b style={{ color:TYPES.push.color }}>부위</b>{" "}
-              <span style={{ color:C.muted }}>{Object.entries(day.partSets).map(([p,s])=>`${p} ${s}세트`).join(" · ")}</span>
-            </div>
-          )}
-          {day.lifts.map((l)=>(
-            <div key={l.id} style={{ fontSize:13, marginTop:6 }}>
-              <b>{l.name}</b> <span style={{ color:C.muted }}>{l.sets.map((s)=>`${s.w}×${s.r}`).join(", ")}</span>
-            </div>
-          ))}
-        </Card>
+      {searchOpen && (
+        <SearchSheet data={data} onClose={()=>setSearchOpen(false)} goToTab={goToTab} />
       )}
-
-      {/* 퀵 운동 기록 */}
-      <Card>
-        <Row><span style={lbl}>퀵 운동 기록</span>
-          {day.mainLift?.name && <span style={{ fontSize:12, color:TYPES.push.color, fontWeight:700 }}>{day.mainLift.name} {day.mainLift.w}kg×{day.mainLift.r}</span>}
-        </Row>
-        <div style={{ marginTop:10 }}>
-          <QuickWorkoutBlock partSets={day.partSets} mainLift={day.mainLift}
-            onChangePartSets={(v)=>updateDay(k,{partSets:v})}
-            onChangeMainLift={(v)=>updateDay(k,{mainLift:v})} schedule={data.schedule} />
-        </div>
-        {day.mainLift?.name && (()=>{
-          const hist = mainLiftHistory(data.schedule, day.mainLift.name);
-          return hist.length>=2 ? (<>
-            <div style={{ fontSize:11, color:C.muted, margin:"14px 0 2px" }}>{day.mainLift.name} 추이</div>
-            <LineChart points={hist} color={TYPES.push.color} unit="kg" />
-          </>) : null;
-        })()}
-      </Card>
-
-      {/* 회복 상태 + 주간 운동 목표 */}
-      <RecoveryCard schedule={data.schedule} weekGoals={data.weekGoals} mutate={mutate} days={days} measurements={data.measurements} />
-
-      {/* 컨디션 · 습관 · 일기 (접이식 묶음) — 하루 한 번만 쓰는 것들 */}
-      <Collapsible title="컨디션 · 습관 · 일기" accent={SLEEP_ACCENT} openSignal={sleepOpen}
-        summary={[
-          todaySleep?.hours ? `수면 ${todaySleep.hours}h` : null,
-          day.mood ? MOODS.find(m=>m.v===day.mood)?.emoji : null,
-          data.habits.length>0 ? `습관 ${Object.values(day.habitLog||{}).filter(Boolean).length}/${data.habits.length}` : null,
-          day.diary ? "일기 ✓" : null,
-        ].filter(Boolean).join(" · ") || "아직 기록 없음"}>
-
-      {/* 수면 · 컨디션 */}
-      <Card>
-        <Row><span style={lbl}>수면 · 컨디션</span>
-          {todaySleep?.condition && <span style={{ fontSize:12, color:SLEEP_ACCENT, fontWeight:700 }}>{CONDITION_LABELS[todaySleep.condition]}</span>}
-        </Row>
-        <SleepBlock value={todaySleep} onChange={(v)=>updateDay(k,{sleep:v})} />
-        <div style={{ fontSize:11, color:C.muted, margin:"14px 0 4px" }}>최근 7일 수면</div>
-        <Bars7 values={sleepByDay} color={SLEEP_ACCENT} />
-      </Card>
-
-      {/* 기분 */}
-      <Card>
-        <Row><span style={lbl}>오늘 기분</span>
-          {day.mood && <span style={{ fontSize:12, color:C.muted }}>{MOODS.find(m=>m.v===day.mood)?.label}</span>}
-        </Row>
-        <div style={{ display:"flex", gap:6, marginTop:10 }}>
-          {MOODS.map((m)=>(
-            <button key={m.v} onClick={()=>updateDay(k,{mood: day.mood===m.v?null:m.v})} style={{
-              flex:1, padding:"10px 0", borderRadius:12, cursor:"pointer", transition:"all .2s",
-              border:`1.5px solid ${day.mood===m.v?m.color:C.line}`,
-              background: day.mood===m.v?tint(m.color,0.15):C.surface2,
-              display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
-              <span style={{ fontSize:22, filter:day.mood===m.v?"none":"grayscale(0.4)" }}>{m.emoji}</span>
-              <span style={{ fontSize:9.5, color:day.mood===m.v?m.color:C.muted, fontWeight:700 }}>{m.label}</span>
-            </button>
-          ))}
-        </div>
-      </Card>
-
-      {/* 습관 트래커 */}
-      <Card>
-        <Row><span style={lbl}>습관</span>
-          {data.habits.length>0 && <span style={{ fontSize:12, color:C.muted }}>{Object.values(day.habitLog||{}).filter(Boolean).length}/{data.habits.length} 완료</span>}
-        </Row>
-        <HabitTracker habits={data.habits} log={day.habitLog||{}}
-          onToggle={(id)=>updateDay(k,{ habitLog:{ ...(day.habitLog||{}), [id]: !(day.habitLog||{})[id] } })}
-          onAddHabit={(name,emoji)=>mutate((prev)=>({ ...prev, habits:[...prev.habits, { id:uid(), name, emoji }] }))}
-          onRemoveHabit={(id)=>{ const h=(data.habits||[]).find(x=>x.id===id);
-            mutate((prev)=>({ ...prev, habits:prev.habits.filter(x=>x.id!==id) }), h?`습관 "${h.name}"`:"습관"); }} />
-      </Card>
-
-      {/* 한 줄 일기 */}
-      <Card>
-        <Row><span style={lbl}>한 줄 일기</span></Row>
-        <textarea value={day.diary||""} onChange={(e)=>updateDay(k,{diary:e.target.value})} rows={2}
-          placeholder="오늘 하루 어땠나요? 기록해두면 나중에 돌아보기 좋아요."
-          style={{...inp, width:"100%", boxSizing:"border-box", resize:"none", lineHeight:1.5, marginTop:10, fontFamily:"inherit"}} />
-      </Card>
-      </Collapsible>
-
-      {/* 이번 주 리포트 (접이식) */}
-      <Card>
-        <div onClick={()=>setReportOpen((v)=>!v)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", cursor:"pointer" }}>
-          <span style={lbl}>이번 주 리포트</span>
-          <span style={{ fontSize:14, color:C.muted, transform:reportOpen?"rotate(180deg)":"none", transition:"transform .2s" }}>▾</span>
-        </div>
-        {reportOpen && (
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginTop:12 }}>
-            <ReportItem label="운동일" value={`${workoutDays}/7`} color={TYPES.legs.color} />
-            <ReportItem label="유산소" value={`${cardioSessions}회`} color={C.amber} />
-            <ReportItem label="평균 단백질" value={`${avgProtein}g`} color={TYPES.legs.color} />
-            <ReportItem label="평균 칼로리" value={avgNet!=null?`${avgNet>=0?"+":""}${avgNet}`:"—"} color={avgNet!=null&&avgNet>=0?TYPES.legs.color:C.danger} />
-            <ReportItem label="공부시간" value={fmtMin(weekStudyMin)} color={STUDY_ACCENT} />
-            <ReportItem label="체중 변화" value={weightDiff!=null?`${weightDiff>=0?"+":""}${weightDiff.toFixed(1)}kg`:"—"} color={weightDiff!=null&&weightDiff>=0?TYPES.push.color:TYPES.pull.color} />
-          </div>
-        )}
-      </Card>
+      {settingsOpen && (
+        <SettingsSheet onClose={()=>setSettingsOpen(false)} onLayout={()=>setLayoutOpen(true)}
+          goToTab={goToTab} hiddenCount={hidden.length} />
+      )}
+      {layoutOpen && (
+        <LayoutSheet order={order} hidden={hidden}
+          onChange={(o,h)=>saveLayout(o,h)} onClose={()=>setLayoutOpen(false)} />
+      )}
     </div>
   );
 }

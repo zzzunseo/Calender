@@ -1218,7 +1218,12 @@ function DayEditor({ dateKey, day, schedule, onClose, updateDay, favProps, apiKe
 
   const save = () => { const d={ ...draft }; if(d.type!=="custom") d.parts=[]; updateDay(dateKey,d); onClose(); };
   const [confirmClear, setConfirmClear] = useState(false);
-  const clearAll = () => { updateDay(dateKey, emptyDay()); onClose(); };
+  // 하루 기록을 통째로 지우는 동작이라 되돌리기 라벨을 반드시 넘긴다.
+  // 이게 빠져 있어서 식단·운동·수면·일기가 한 번에 사라져도 복구할 방법이 없었다.
+  const clearAll = () => {
+    updateDay(dateKey, emptyDay(), `${dateKey.slice(5).replace("-", ".")} 하루 기록`);
+    onClose();
+  };
 
   return (
     <SheetLayer onClose={save}>
