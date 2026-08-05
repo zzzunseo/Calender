@@ -140,9 +140,21 @@ export const FOOD_DB = [
   { cat:"한식", key:"튀김", aliases:["튀김"], unit:"count", baseQty:1, protein:3, carbs:15, sugar:1, fat:8, kcal:145 },
 
   // ---- 치킨 프랜차이즈 (1마리 기준) ----
-  { cat:"치킨", key:"bhc 맛초킹", aliases:["맛초킹"], brand:"bhc", unit:"count", baseQty:1, protein:128, carbs:150, sugar:70, fat:120, kcal:2180 },
-  { cat:"치킨", key:"bhc 뿌링클", aliases:["뿌링클"], brand:"bhc", unit:"count", baseQty:1, protein:115, carbs:130, sugar:45, fat:130, kcal:2200 },
-  { cat:"치킨", key:"bhc 후라이드", aliases:["bhc 후라이드"], brand:"bhc", unit:"count", baseQty:1, protein:130, carbs:60, sugar:3, fat:95, kcal:1700 },
+  // ---- bhc (계열별 분류 · 1마리 기준) ----
+  // 부위별 100g 항목을 쓸 때 어느 계열을 고를지 이름에 적어뒀다.
+  // 후라이드계는 소스가 없어 당류가 거의 0, 시즈닝계는 가루 지방이 더해져 지방이 가장 높고,
+  // 양념·간장계는 소스에서 당류가 크게 올라간다.
+  { cat:"치킨", key:"bhc 후라이드 [후라이드계]", aliases:["bhc 후라이드","bhc후라이드"], brand:"bhc", unit:"count", baseQty:1, protein:130, carbs:60, sugar:3, fat:95, kcal:1700 },
+  { cat:"치킨", key:"bhc 핫후라이드 [후라이드계]", aliases:["핫후라이드","bhc 핫후라이드"], brand:"bhc", unit:"count", baseQty:1, protein:128, carbs:65, sugar:5, fat:97, kcal:1745 },
+  { cat:"치킨", key:"bhc 뿌링클 [시즈닝계]", aliases:["뿌링클"], brand:"bhc", unit:"count", baseQty:1, protein:115, carbs:130, sugar:45, fat:130, kcal:2200 },
+  { cat:"치킨", key:"bhc 포테킹 [시즈닝계]", aliases:["포테킹"], brand:"bhc", unit:"count", baseQty:1, protein:112, carbs:140, sugar:30, fat:132, kcal:2200 },
+  { cat:"치킨", key:"bhc 치바고 [시즈닝계]", aliases:["치바고"], brand:"bhc", unit:"count", baseQty:1, protein:118, carbs:120, sugar:35, fat:125, kcal:2080 },
+  { cat:"치킨", key:"bhc 맛초킹 [간장계]", aliases:["맛초킹"], brand:"bhc", unit:"count", baseQty:1, protein:128, carbs:150, sugar:70, fat:120, kcal:2180 },
+  { cat:"치킨", key:"bhc 골드킹 [간장계]", aliases:["골드킹"], brand:"bhc", unit:"count", baseQty:1, protein:124, carbs:135, sugar:58, fat:110, kcal:2030 },
+  { cat:"치킨", key:"bhc 양념치킨 [양념계]", aliases:["bhc 양념","bhc 양념치킨"], brand:"bhc", unit:"count", baseQty:1, protein:118, carbs:150, sugar:72, fat:105, kcal:2020 },
+  { cat:"치킨", key:"bhc 마라칸 [양념계]", aliases:["마라칸"], brand:"bhc", unit:"count", baseQty:1, protein:120, carbs:125, sugar:40, fat:118, kcal:2040 },
+  { cat:"치킨", key:"bhc 뿌링클 순살 [시즈닝계]", aliases:["뿌링클 순살"], brand:"bhc", unit:"count", baseQty:1, protein:33, carbs:38, sugar:13, fat:37, kcal:617, gramsPerServing:200 },
+  { cat:"치킨", key:"bhc 맛초킹 순살 [간장계]", aliases:["맛초킹 순살"], brand:"bhc", unit:"count", baseQty:1, protein:37, carbs:44, sugar:20, fat:34, kcal:630, gramsPerServing:200 },
   { cat:"치킨", key:"후라이드치킨", aliases:["후라이드치킨","치킨","후라이드"], unit:"count", baseQty:1, protein:125, carbs:60, sugar:3, fat:95, kcal:1750 },
   { cat:"치킨", key:"양념치킨", aliases:["양념치킨","양념"], unit:"count", baseQty:1, protein:118, carbs:140, sugar:60, fat:100, kcal:2100 },
   { cat:"치킨", key:"간장치킨(일반)", aliases:["간장치킨 한마리"], unit:"count", baseQty:1, protein:120, carbs:110, sugar:45, fat:95, kcal:1900 },
@@ -154,10 +166,85 @@ export const FOOD_DB = [
   { cat:"치킨", key:"BBQ 양념치킨", aliases:["BBQ 양념치킨"], brand:"BBQ", unit:"count", baseQty:1, protein:120, carbs:150, sugar:70, fat:105, kcal:2150 },
   { cat:"치킨", key:"굽네 고추바사삭", aliases:["고추바사삭"], brand:"굽네", unit:"count", baseQty:1, protein:125, carbs:60, sugar:8, fat:90, kcal:1650 },
   { cat:"치킨", key:"굽네 볼카노", aliases:["볼카노"], brand:"굽네", unit:"count", baseQty:1, protein:120, carbs:90, sugar:40, fat:95, kcal:1800 },
-  { cat:"치킨", key:"노랑통닭 후라이드", aliases:["노랑통닭"], brand:"노랑통닭", unit:"count", baseQty:1, protein:128, carbs:55, sugar:3, fat:95, kcal:1700 },
+  // ---- 노랑통닭 ----
+  // 뼈닭 한 마리 조리 전 1,151~1,250g(12호) · 순살 한 마리 800g (공식 표기).
+  // 염지를 안 하고 가마솥에 튀기며 절단을 잘게 해서 튀김옷 비중이 다른 브랜드보다 높다.
+  { cat:"치킨", key:"노랑통닭 후라이드 [후라이드계]", aliases:["노랑통닭","노랑통닭 후라이드"], brand:"노랑통닭", unit:"count", baseQty:1, protein:128, carbs:55, sugar:3, fat:95, kcal:1700, gramsPerServing:700 },
+  { cat:"치킨", key:"노랑통닭 양념치킨 [양념계]", aliases:["노랑통닭 양념"], brand:"노랑통닭", unit:"count", baseQty:1, protein:120, carbs:145, sugar:68, fat:102, kcal:2050, gramsPerServing:760 },
+  { cat:"치킨", key:"노랑통닭 깐풍치킨 [간장계]", aliases:["노랑통닭 깐풍","깐풍치킨"], brand:"노랑통닭", unit:"count", baseQty:1, protein:122, carbs:130, sugar:52, fat:100, kcal:1950, gramsPerServing:750 },
+
+  // 3종세트 = 후라이드 + 양념 + 깐풍을 한 마리 분량에 나눠 담은 것
+  { cat:"치킨", key:"노랑통닭 3종세트(뼈)", aliases:["노랑 3종","노랑통닭 3종세트","3종세트"], brand:"노랑통닭", unit:"count", baseQty:1, protein:123, carbs:110, sugar:41, fat:99, kcal:1900, gramsPerServing:735 },
+  { cat:"치킨", key:"노랑통닭 3종세트(순살)", aliases:["노랑 순살 3종","순살 3종세트"], brand:"노랑통닭", unit:"count", baseQty:1, protein:140, carbs:105, sugar:40, fat:88, kcal:1780, gramsPerServing:640 },
+
+  // 반반 = 두 가지를 절반씩. 공식 조합은 후라이드-양념 / 후라이드-깐풍 / 양념-깐풍 셋
+  { cat:"치킨", key:"노랑통닭 반반(후라이드+양념)", aliases:["노랑 반반","후라이드 양념 반반"], brand:"노랑통닭", unit:"count", baseQty:1, protein:124, carbs:100, sugar:36, fat:99, kcal:1875, gramsPerServing:730 },
+  { cat:"치킨", key:"노랑통닭 반반(후라이드+깐풍)", aliases:["후라이드 깐풍 반반"], brand:"노랑통닭", unit:"count", baseQty:1, protein:125, carbs:93, sugar:28, fat:98, kcal:1825, gramsPerServing:725 },
+  { cat:"치킨", key:"노랑통닭 반반(양념+깐풍)", aliases:["양념 깐풍 반반"], brand:"노랑통닭", unit:"count", baseQty:1, protein:121, carbs:138, sugar:60, fat:101, kcal:2000, gramsPerServing:755 },
   { cat:"치킨", key:"푸라닭 블랙알리오", aliases:["블랙알리오","푸라닭"], brand:"푸라닭", unit:"count", baseQty:1, protein:120, carbs:80, sugar:25, fat:100, kcal:1850 },
   { cat:"치킨", key:"60계 간장치킨", aliases:["60계"], brand:"60계", unit:"count", baseQty:1, protein:122, carbs:100, sugar:45, fat:100, kcal:1950 },
   { cat:"치킨", key:"처갓집 슈프림양념", aliases:["처갓집","슈프림양념"], brand:"처갓집", unit:"count", baseQty:1, protein:118, carbs:145, sugar:65, fat:105, kcal:2100 },
+
+  // ---- 호식이두마리치킨 (1마리 기준 · 주문 1건은 2마리) ----
+  // 공개 영양성분은 100g 기준으로만 나와 있어(간장 327 / 후라이드 308 / 양념 248~286 kcal)
+  // 1마리 가식부 약 550g으로 환산했다. 매장·닭 크기에 따라 편차가 있다.
+  { cat:"치킨", key:"호식이 간장치킨", aliases:["호식이 간장","호식이간장치킨"], brand:"호식이", unit:"count", baseQty:1, protein:121, carbs:121, sugar:50, fat:94, kcal:1800, gramsPerServing:550 },
+  { cat:"치킨", key:"호식이 양념치킨", aliases:["호식이 양념","호식이양념치킨"], brand:"호식이", unit:"count", baseQty:1, protein:105, carbs:138, sugar:55, fat:66, kcal:1540, gramsPerServing:550 },
+  { cat:"치킨", key:"호식이 후라이드", aliases:["호식이 후라이드","호식이후라이드"], brand:"호식이", unit:"count", baseQty:1, protein:138, carbs:55, sugar:3, fat:99, kcal:1650, gramsPerServing:550 },
+
+  // 순살은 뼈가 없어 같은 무게에서 살코기 비율이 높다. 1인분 150g 기준.
+  { cat:"치킨", key:"호식이 간장치킨 순살", aliases:["호식이 간장 순살","간장 순살"], brand:"호식이", unit:"count", baseQty:1, protein:33, carbs:33, sugar:14, fat:26, kcal:490, gramsPerServing:150 },
+  { cat:"치킨", key:"호식이 양념치킨 순살", aliases:["호식이 양념 순살","양념 순살"], brand:"호식이", unit:"count", baseQty:1, protein:29, carbs:38, sugar:15, fat:18, kcal:420, gramsPerServing:150 },
+  { cat:"치킨", key:"호식이 후라이드 순살", aliases:["호식이 후라이드 순살","후라이드 순살"], brand:"호식이", unit:"count", baseQty:1, protein:38, carbs:15, sugar:1, fat:27, kcal:450, gramsPerServing:150 },
+
+  // ---- 치킨 부위별 (1조각) ----
+  // 한 마리를 조각 수로 나눠 계산하면 부위 차이가 통째로 뭉개진다.
+  // 가슴살은 지방이 적고(생 100g당 1g) 다리·날개는 껍질 비율이 높아 11g까지 올라가서,
+  // 같은 무게를 먹어도 실제 칼로리가 크게 달라진다.
+  // 아래는 [부위 살코기 + 튀김옷·흡유 + 소스]를 따로 더해 조각 단위로 만든 값이다.
+  { cat:"치킨", key:"후라이드 가슴살 1조각", aliases:["치킨 가슴살","후라이드 가슴","치킨가슴살 조각"], unit:"count", baseQty:1, protein:12, carbs:8, sugar:0, fat:10, kcal:170, gramsPerServing:70 },
+  { cat:"치킨", key:"후라이드 다리 1조각", aliases:["치킨 다리","후라이드 다리","닭다리 조각"], unit:"count", baseQty:1, protein:8, carbs:5, sugar:0, fat:9, kcal:134, gramsPerServing:50 },
+  { cat:"치킨", key:"후라이드 날개 1조각", aliases:["치킨 날개","후라이드 날개","닭날개 조각","봉"], unit:"count", baseQty:1, protein:4, carbs:4, sugar:0, fat:6.5, kcal:95, gramsPerServing:30 },
+
+  { cat:"치킨", key:"간장치킨 가슴살 1조각", aliases:["간장 가슴살","간장치킨 가슴"], unit:"count", baseQty:1, protein:12, carbs:12, sugar:3, fat:10, kcal:186, gramsPerServing:80 },
+  { cat:"치킨", key:"간장치킨 다리 1조각", aliases:["간장 다리","간장치킨 다리"], unit:"count", baseQty:1, protein:8, carbs:9, sugar:3, fat:9, kcal:150, gramsPerServing:60 },
+  { cat:"치킨", key:"간장치킨 날개 1조각", aliases:["간장 날개","간장치킨 날개"], unit:"count", baseQty:1, protein:4, carbs:7, sugar:2.5, fat:6.5, kcal:108, gramsPerServing:38 },
+
+  { cat:"치킨", key:"양념치킨 가슴살 1조각", aliases:["양념 가슴살","양념치킨 가슴"], unit:"count", baseQty:1, protein:12, carbs:15, sugar:5.5, fat:10, kcal:198, gramsPerServing:85 },
+  { cat:"치킨", key:"양념치킨 다리 1조각", aliases:["양념 다리","양념치킨 다리"], unit:"count", baseQty:1, protein:8, carbs:12, sugar:5.5, fat:9, kcal:162, gramsPerServing:65 },
+  { cat:"치킨", key:"양념치킨 날개 1조각", aliases:["양념 날개","양념치킨 날개"], unit:"count", baseQty:1, protein:4, carbs:9, sugar:4, fat:6.5, kcal:117, gramsPerServing:42 },
+
+  // 껍질을 벗기고 살코기만 먹는 경우 — 지방이 크게 줄어 따로 둔다
+  { cat:"치킨", key:"치킨 가슴살 살코기만 1조각", aliases:["치킨 가슴살 껍질제거","껍질 벗긴 치킨 가슴살"], unit:"count", baseQty:1, protein:11, carbs:1, sugar:0, fat:2, kcal:66, gramsPerServing:48 },
+
+  // ---- 치킨 부위별 100g (저울로 재서 넣을 때 · 브랜드 무관) ----
+  // 조각 크기는 매장마다 다르지만 "부위별 100g당 조성"은 거의 일정하다.
+  // 그래서 조각 수로 어림잡는 대신 먹은 무게를 직접 재는 쪽이 훨씬 정확하다.
+  // 뼈는 가식부가 아니므로, 뼈 있는 부위는 [먹기 전 무게 - 먹고 남은 뼈 무게]로 재야 한다.
+  { cat:"치킨", key:"후라이드 가슴살(튀김옷 포함)", aliases:["치킨 가슴살 g","후라이드 가슴살 무게"], unit:"gram", baseQty:100, protein:17, carbs:11, sugar:0, fat:14, kcal:238 },
+  { cat:"치킨", key:"후라이드 다리살(튀김옷 포함)", aliases:["치킨 다리살 g","후라이드 다리 무게"], unit:"gram", baseQty:100, protein:16, carbs:10, sugar:0, fat:18, kcal:266 },
+  { cat:"치킨", key:"후라이드 날개(튀김옷 포함)", aliases:["치킨 날개 g","후라이드 날개 무게"], unit:"gram", baseQty:100, protein:13, carbs:13, sugar:0, fat:21.5, kcal:298 },
+
+  { cat:"치킨", key:"간장치킨 가슴살 100g", aliases:["간장 가슴살 g"], unit:"gram", baseQty:100, protein:15, carbs:15, sugar:3.8, fat:12.5, kcal:233 },
+  { cat:"치킨", key:"간장치킨 다리살 100g", aliases:["간장 다리살 g"], unit:"gram", baseQty:100, protein:13, carbs:15, sugar:5, fat:15, kcal:247 },
+  { cat:"치킨", key:"간장치킨 날개 100g", aliases:["간장 날개 g"], unit:"gram", baseQty:100, protein:10.5, carbs:18, sugar:6.5, fat:17, kcal:267 },
+
+  { cat:"치킨", key:"양념치킨 가슴살 100g", aliases:["양념 가슴살 g"], unit:"gram", baseQty:100, protein:14, carbs:17.5, sugar:6.5, fat:12, kcal:234 },
+  { cat:"치킨", key:"양념치킨 다리살 100g", aliases:["양념 다리살 g"], unit:"gram", baseQty:100, protein:12, carbs:18.5, sugar:8.5, fat:14, kcal:248 },
+  { cat:"치킨", key:"양념치킨 날개 100g", aliases:["양념 날개 g"], unit:"gram", baseQty:100, protein:9.5, carbs:21.5, sugar:9.5, fat:15.5, kcal:264 },
+
+  // 껍질·튀김옷을 벗기고 속살만 먹을 때 — 지방이 크게 줄어 따로 둔다
+  { cat:"치킨", key:"치킨 가슴살 속살만 100g", aliases:["치킨 가슴 속살","튀김옷 벗긴 가슴살"], unit:"gram", baseQty:100, protein:23, carbs:2, sugar:0, fat:4, kcal:136 },
+  { cat:"치킨", key:"치킨 다리살 속살만 100g", aliases:["치킨 다리 속살","튀김옷 벗긴 다리살"], unit:"gram", baseQty:100, protein:20, carbs:2, sugar:0, fat:11, kcal:187 },
+
+  // 순살은 뼈가 없어 잰 무게가 곧 가식부다
+  { cat:"치킨", key:"순살치킨 100g(후라이드)", aliases:["순살 후라이드 g","순살치킨 무게"], unit:"gram", baseQty:100, protein:25, carbs:10, sugar:1, fat:18, kcal:302 },
+  { cat:"치킨", key:"순살치킨 100g(간장)", aliases:["순살 간장 g"], unit:"gram", baseQty:100, protein:22, carbs:22, sugar:9, fat:17, kcal:329 },
+  { cat:"치킨", key:"순살치킨 100g(양념)", aliases:["순살 양념 g"], unit:"gram", baseQty:100, protein:19, carbs:25, sugar:10, fat:12, kcal:284 },
+  { cat:"치킨", key:"깐풍치킨 가슴살 100g", aliases:["깐풍 가슴살 g"], unit:"gram", baseQty:100, protein:15, carbs:14, sugar:3, fat:13, kcal:233 },
+  { cat:"치킨", key:"깐풍치킨 다리살 100g", aliases:["깐풍 다리살 g"], unit:"gram", baseQty:100, protein:13, carbs:14, sugar:3.5, fat:16, kcal:252 },
+  { cat:"치킨", key:"시즈닝치킨 가슴살 100g", aliases:["뿌링클 가슴살 g","시즈닝 가슴살"], unit:"gram", baseQty:100, protein:15, carbs:17, sugar:6, fat:17, kcal:281 },
+  { cat:"치킨", key:"시즈닝치킨 다리살 100g", aliases:["뿌링클 다리살 g","시즈닝 다리살"], unit:"gram", baseQty:100, protein:13, carbs:17, sugar:6, fat:21, kcal:309 },
   { cat:"치킨", key:"네네 스노윙치킨", aliases:["스노윙","네네치킨"], brand:"네네", unit:"count", baseQty:1, protein:115, carbs:110, sugar:35, fat:120, kcal:2050 },
   { cat:"치킨", key:"지코바 양념치킨", aliases:["지코바"], brand:"지코바", unit:"count", baseQty:1, protein:110, carbs:90, sugar:45, fat:80, kcal:1600 },
   { cat:"치킨", key:"맘스터치 간장치킨", aliases:["간장치킨"], brand:"맘스터치", unit:"count", baseQty:1, protein:115, carbs:100, sugar:45, fat:95, kcal:1850 },
