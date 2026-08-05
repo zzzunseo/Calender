@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { TYPES, C, todayKey, uid, tint, num, extractJSON, Card, Row, SheetLayer, ConfirmX, lbl, inp, primary, ghost, xBtn, chip, sheet, grip, callClaudeAPI } from "../shared.jsx";
 import { BarcodeSheet } from "../BarcodeSheet.jsx";
+import { CHICKEN_PARTS, isChicken, applyChickenPart } from "../foodDB.js";
 import { localBrandSearch, makeCustomEntry, searchAllFoods, servingLabel, displayCat, CATEGORIES, gramsPerServing, portionHint, HAND_GUIDE, CONTAINER_GUIDE, CAT_PORTION_HINT, CATEGORY_GROUPS, catIcon, categoryCounts, NUTRI_FILTERS, proteinPer100kcal, categoryUsage } from "../foodDB.js";
 
 const MENU_PROMPT = `사용자는 린메스업(근육 늘리기) 중이라 단백질은 높고 칼로리는 과하지 않으며 비교적 건강한 메뉴를 선호해.
@@ -253,22 +254,29 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule, favorites, m
 
   const [qty, setQty] = useState({}); // 항목별 선택 수량 (기본 1인분)
   const [gramMode, setGramMode] = useState({}); // 항목별 g 직접입력값 (있으면 g 기준)
+  const [partOf, setPartOf] = useState({});     // 치킨 항목별 부위 선택 (기본 전체)
   const multOf = (e) => {
     const g = gramMode[e.key];
     if (g!=null && g!=="") { const gv=num(g); return gv>0 ? gv/gramsPerServing(e) : 1; }
     return qty[e.key] || 1;
   };
-  const addToToday = (e) => {
-    const mult = multOf(e);
-    const g = gramMode[e.key];
+  const addToToday = (e0) => {
+    // 치킨은 고른 부위로 값을 보정한 뒤 수량을 곱한다
+    const pk = partOf[e0.key] || "all";
+    const e = applyChickenPart(e0, pk);
+    const partLabel = (isChicken(e0) && pk!=="all")
+      ? ` ${(CHICKEN_PARTS.find(x=>x.k===pk)||{}).label}` : "";
+    const mult = multOf(e0);
+    const g = gramMode[e0.key];
     const usingGram = g!=null && g!=="" && num(g)>0;
     const r1 = (v)=>Math.round(v*mult*10)/10;
-    const label = usingGram ? `${e.key} ${num(g)}g` : (Math.abs(mult-1)<0.001 ? e.key : `${e.key} ${Math.round(mult*100)/100}인분`);
+    const base = `${e0.key}${partLabel}`;
+    const label = usingGram ? `${base} ${num(g)}g` : (Math.abs(mult-1)<0.001 ? base : `${base} ${Math.round(mult*100)/100}인분`);
     addFoodsToday([{ id:uid(), name: label,
       protein:r1(e.protein), carbs:r1(e.carbs), sugar:r1(e.sugar), fat:r1(e.fat), kcal:Math.round(e.kcal*mult),
       liquidMl: e.liquidMl ? (e.fixedLiquid ? e.liquidMl : Math.round(e.liquidMl*mult)) : 0 }]);
-    setAdded((a)=>({ ...a, [e.key]:true }));
-    setTimeout(()=>setAdded((a)=>({ ...a, [e.key]:false })), 1500);
+    setAdded((a)=>({ ...a, [e0.key]:true }));
+    setTimeout(()=>setAdded((a)=>({ ...a, [e0.key]:false })), 1500);
   };
 
   const addCustomFood = () => {
@@ -586,6 +594,33 @@ function FoodSearch({ addFoodsToday, customFoods, mutate, schedule, favorites, m
           {e.liquidMl>0 && (
             <div style={{ fontSize:11, color:"#6BC5F0", fontWeight:700, marginTop:8 }}>💧 수분 {e.liquidMl}ml{e.fixedLiquid?" 고정":""} · {e.fixedLiquid?`양과 무관하게 물 ${Math.round(e.liquidMl/250*10)/10}잔 반영`:`추가 시 물 ${Math.round(e.liquidMl/250*10)/10}잔 자동 반영`}</div>
           )}
+
+          {/* 부위 선택 — 치킨만. 가슴살 위주로 먹으면 실제 조성이 꽤 달라진다.
+              메뉴를 따로 나누지 않고 여기서 비율만 곱해 어림잡는다. */}
+          {isChicken(e) && (()=>{
+            const pk = partOf[e.key] || "all";
+            const adj = applyChickenPart(e, pk);
+            return (
+              <div style={{ marginTop:10 }}>
+                <div style={{ display:"flex", gap:5 }}>
+                  {CHICKEN_PARTS.map((pt)=>(
+                    <button key={pt.k} onClick={()=>setPartOf((s2)=>({ ...s2, [e.key]:pt.k }))}
+                      style={{ ...chip(pk===pt.k, TYPES.legs.color), flex:1, textAlign:"center",
+                        padding:"7px 0", fontSize:11.5 }}>
+                      {pt.label}
+                    </button>
+                  ))}
+                </div>
+                {pk!=="all" && (
+                  <div style={{ fontSize:10, color:C.muted, marginTop:5, lineHeight:1.5 }}>
+                    어림 보정 · 단백질 {e.protein}→<b style={{color:TYPES.legs.color}}>{adj.protein}</b>g ·
+                    지방 {e.fat}→<b style={{color:TYPES.legs.color}}>{adj.fat}</b>g ·
+                    {e.kcal}→<b style={{color:TYPES.legs.color}}>{adj.kcal}</b>kcal
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* 수량 선택 (인분 칩) */}
           <div style={{ display:"flex", gap:5, marginTop:10, alignItems:"center" }}>

@@ -1259,3 +1259,36 @@ export function servingLabel(entry) {
 export function displayCat(entry) {
   return normCat(entry);
 }
+
+// ================= 치킨 부위 보정 =================
+// 치킨은 같은 무게라도 어느 부위를 먹었느냐로 조성이 꽤 달라진다.
+// 그렇다고 메뉴마다 부위별 항목을 따로 만들면 목록이 세 배가 되고, 신메뉴가 나올 때마다
+// 또 만들어야 한다. 그래서 메뉴 값은 그대로 두고 부위 비율만 곱해 어림잡는다.
+//
+// 계수 근거: 튀긴 조각은 대략 살코기 70% + 튀김옷 30%.
+//   가슴살 생 100g = 단백질 23g / 지방 1g
+//   다리살 생 100g = 단백질 19g / 지방 11g
+// 튀김옷(탄수·당류)은 부위와 무관하므로 건드리지 않고, 단백질과 지방만 조정한다.
+// 조정 뒤 칼로리는 탄단지에서 다시 계산해 앞뒤가 맞게 한다.
+export const CHICKEN_PARTS = [
+  { k:"all",    label:"전체",   desc:"부위 안 가림",        p:1,    f:1    },
+  { k:"breast", label:"가슴살", desc:"단백질↑ 지방↓",       p:1.10, f:0.71 },
+  { k:"leg",    label:"다리살", desc:"지방↑",               p:0.90, f:1.29 },
+];
+
+export const isChicken = (e) => !!e && e.cat === "치킨";
+
+// 부위를 반영한 영양값을 돌려준다. part가 "all"이거나 치킨이 아니면 원본 그대로.
+export function applyChickenPart(e, partKey) {
+  const part = CHICKEN_PARTS.find(x => x.k === partKey);
+  // 치킨이 아닌 항목에까지 계수가 먹으면 조용히 틀린 값이 들어간다.
+  // UI에서 치킨만 노출하고 있지만, 함수 자체도 안전하게 막아둔다.
+  if (!e || !part || part.k === "all" || !isChicken(e)) return e;
+  const protein = Math.round(Number(e.protein || 0) * part.p * 10) / 10;
+  const fat = Math.round(Number(e.fat || 0) * part.f * 10) / 10;
+  const carbs = Number(e.carbs || 0);
+  // 칼로리를 그대로 두면 탄단지 합과 어긋나므로 다시 계산한다
+  const kcal = Math.round(protein * 4 + carbs * 4 + fat * 9);
+  return { ...e, protein, fat, kcal };
+}
+
