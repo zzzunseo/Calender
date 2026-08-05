@@ -488,7 +488,7 @@ export default function Today({ data, updateDay, addFoodsToday, target, tdee, we
             </>
           )}
   
-          // 주간 칼로리 뱅킹 — 하루 넘겨도 주 단위로 보면 만회 가능 
+          {/* 주간 칼로리 뱅킹 — 하루 넘겨도 주 단위로 보면 만회 가능 */}
           {(()=>{
             const bank = calorieBank(data.schedule, weight, tdee, surplus);
             if (!bank || bank.logged < 2) return null;
@@ -515,7 +515,7 @@ export default function Today({ data, updateDay, addFoodsToday, target, tdee, we
             );
           })()}
   
-          // 걸음수 → 소모 칼로리 
+          {/* 걸음수 → 소모 칼로리 */}
           <div style={{ marginTop:14, paddingTop:14, borderTop:`1px solid ${C.line}` }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:9 }}>
               <span style={{ fontSize:12, fontWeight:800, color:C.muted }}>🚶 걸음수</span>
@@ -562,7 +562,7 @@ export default function Today({ data, updateDay, addFoodsToday, target, tdee, we
           <NutriRow label="지방" value={fatSum} target={mt?mt.fat:null} color="#FFB74B" overType="soft" />
           <NutriRow label="당류" value={sugarSum} target={mt?mt.sugar:null} color="#FF8FB0" overType="hard" capLabel="상한" />
   
-          // 탄단지 비율 
+          {/* 탄단지 비율 */}
           <MacroRatio carbs={carbsSum} protein={proteinSum} fat={fatSum}
             goal={MACRO_GOALS[data.profile.macroGoal] || MACRO_GOALS.lean} />
   
@@ -675,7 +675,7 @@ export default function Today({ data, updateDay, addFoodsToday, target, tdee, we
             day.diary ? "일기 ✓" : null,
           ].filter(Boolean).join(" · ") || "아직 기록 없음"}>
   
-        // 수면 · 컨디션 
+        {/* 수면 · 컨디션 */}
         <Card>
           <Row><span style={lbl}>수면 · 컨디션</span>
             {todaySleep?.condition && <span style={{ fontSize:12, color:SLEEP_ACCENT, fontWeight:700 }}>{CONDITION_LABELS[todaySleep.condition]}</span>}
@@ -685,7 +685,7 @@ export default function Today({ data, updateDay, addFoodsToday, target, tdee, we
           <Bars7 values={sleepByDay} color={SLEEP_ACCENT} />
         </Card>
   
-        // 기분 
+        {/* 기분 */}
         <Card>
           <Row><span style={lbl}>오늘 기분</span>
             {day.mood && <span style={{ fontSize:12, color:C.muted }}>{MOODS.find(m=>m.v===day.mood)?.label}</span>}
@@ -704,7 +704,7 @@ export default function Today({ data, updateDay, addFoodsToday, target, tdee, we
           </div>
         </Card>
   
-        // 습관 트래커 
+        {/* 습관 트래커 */}
         <Card>
           <Row><span style={lbl}>습관</span>
             {data.habits.length>0 && <span style={{ fontSize:12, color:C.muted }}>{Object.values(day.habitLog||{}).filter(Boolean).length}/{data.habits.length} 완료</span>}
@@ -716,7 +716,7 @@ export default function Today({ data, updateDay, addFoodsToday, target, tdee, we
               mutate((prev)=>({ ...prev, habits:prev.habits.filter(x=>x.id!==id) }), h?`습관 "${h.name}"`:"습관"); }} />
         </Card>
   
-        // 한 줄 일기 
+        {/* 한 줄 일기 */}
         <Card>
           <Row><span style={lbl}>한 줄 일기</span></Row>
           <textarea value={day.diary||""} onChange={(e)=>updateDay(k,{diary:e.target.value})} rows={2}
@@ -776,13 +776,17 @@ export default function Today({ data, updateDay, addFoodsToday, target, tdee, we
             const mr = measureReminder(data.measurements);
             const over = mr.never || mr.due;
             const col = over ? C.amber : mr.soon ? C.amber : C.muted;
-            // 딱 7일째면 "잴 때", 그 이후로 밀리면 며칠 밀렸는지 알려준다
+            // 예전엔 "인바디 5일 후"처럼 앞으로 남은 날만 보여줬는데,
+            // 숫자만 눈에 들어와 "5일 전에 쟀다"로 읽히는 일이 있었다.
+            // 기준점(마지막으로 잰 날)을 먼저 쓰고 남은 날을 괄호로 덧붙여 오해를 없앤다.
+            const ago = mr.daysAgo === 0 ? "오늘 쟀어요" : `${mr.daysAgo}일 전에 쟀어요`;
             const text = mr.never ? "인바디 기록 없음"
-              : mr.daysAgo === 7 ? "인바디 잴 때"
-              : mr.due ? `인바디 ${mr.daysAgo - 7}일 밀림`
-              : `인바디 ${mr.left}일 후`;
+              : mr.daysAgo === 7 ? `인바디 · ${ago} · 잴 때`
+              : mr.due ? `인바디 · ${ago} · ${mr.daysAgo - 7}일 밀림`
+              : `인바디 · ${ago} · D-${mr.left}`;
             return (
               <button onClick={()=>goToTab && goToTab("body")}
+                title={mr.lastDate ? `마지막 측정 ${mr.lastDate}` : "측정 기록 없음"}
                 style={{ fontSize:11.5, fontWeight:800, color:col,
                   background: over ? tint(C.amber,0.13) : C.surface,
                   border:`1px solid ${over ? tint(C.amber,0.4) : C.line}`,
