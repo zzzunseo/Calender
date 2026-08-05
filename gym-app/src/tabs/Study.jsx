@@ -154,18 +154,21 @@ function StudyVocab({ data, mutate, apiKey }) {
     .split(/[,·\n]/).map(x=>x.trim()).filter(x=>x.length >= 2);
 
   // 한 항목이 여러 묶음에 들어갈 수 있다(품사 2개, 뜻 2개). 모아보기가 목적이라 중복을 허용한다.
+  // 그룹은 {key, label, rows, color}로 다룬다.
+  // 품사마다 고유 색이 있는데 예전엔 헤더가 전부 같은 색이라, 스크롤하면
+  // 지금 보고 있는 게 명사 구간인지 동사 구간인지 구별이 안 됐다.
   const groupsOf = (rows) => {
     if (groupBy === "pos") {
       const multi = rows.filter(v => posList(v.pos).length >= 2);
-      const byPos = POS_LIST.map(pi => [
-        `${pi.label} (${pi.short})`,
-        rows.filter(v => hasPos(v.pos, pi.k)),
-      ]).filter(([, r]) => r.length);
+      const byPos = POS_LIST
+        .map(pi => ({ key:pi.k, label:`${pi.label} (${pi.short})`, color:pi.color,
+                      rows: rows.filter(v => hasPos(v.pos, pi.k)) }))
+        .filter(g => g.rows.length);
       const none = rows.filter(v => !posList(v.pos).length);
       return [
-        ...(multi.length ? [[`여러 품사 ${multi.length}개`, multi]] : []),
+        ...(multi.length ? [{ key:"multi", label:"여러 품사", color:"#E08CFF", rows:multi }] : []),
         ...byPos,
-        ...(none.length ? [["품사 미지정", none]] : []),
+        ...(none.length ? [{ key:"none", label:"품사 미지정", color:C.muted, rows:none }] : []),
       ];
     }
 
@@ -181,15 +184,17 @@ function StudyVocab({ data, mutate, apiKey }) {
       const grouped = new Set(groups.flatMap(([, r]) => r.map(v=>v.id)));
       const rest = rows.filter(v => !grouped.has(v.id));
       return [
-        ...groups.map(([k, r])=> [`"${k}" ${r.length}개`, r]),
-        ...(rest.length ? [[`같은 뜻 없음 ${rest.length}개`, rest]] : []),
+        ...groups.map(([k, r])=> ({ key:`syn-${k}`, label:`"${k}"`, color:STUDY_ACCENT, rows:r })),
+        ...(rest.length ? [{ key:"syn-rest", label:"같은 뜻 없음", color:C.muted, rows:rest }] : []),
       ];
     }
 
     // 섹션(태그) — 앞의 숫자를 뽑아 자연 순서로. 안 그러면 Section 10이 Section 2보다 앞에 온다.
     const map = new Map();
     rows.forEach((v)=>{ const k=(v.tag||"").trim(); if(!map.has(k)) map.set(k,[]); map.get(k).push(v); });
-    return [...map.entries()].sort((a,b)=> secNum(a[0])-secNum(b[0]) || String(a[0]).localeCompare(String(b[0])));
+    return [...map.entries()]
+      .sort((a,b)=> secNum(a[0])-secNum(b[0]) || String(a[0]).localeCompare(String(b[0])))
+      .map(([k, r])=> ({ key:`tag-${k||"none"}`, label:k || "섹션 없음", color:STUDY_ACCENT, rows:r }));
   };
   // 필터·검색이 바뀌면 보고 있던 위치가 범위를 벗어난다. 처음으로 되돌린다.
   useEffect(()=>{ setBi(0); }, [tab, filterMode, tagFilter, q]);
@@ -200,6 +205,20 @@ function StudyVocab({ data, mutate, apiKey }) {
   const [limit, setLimit] = useState(PAGE);
   useEffect(()=>{ setLimit(PAGE); }, [tab, filterMode, tagFilter, q, groupBy]);
   const shown = listed.slice(0, limit);
+
+  // 그룹 접기 — "따로따로 보고 싶다"는 요구는 결국 지금 안 볼 그룹을 치우는 일이다.
+  const [folded, setFolded] = useState([]);
+  const toggleFold = (k) => setFolded((f)=> f.includes(k) ? f.filter(x=>x!==k) : [...f, k]);
+  // 품사 하나만 골라 보기. null이면 전부.
+  const [onlyPos, setOnlyPos] = useState(null);
+  useEffect(()=>{ setFolded([]); setOnlyPos(null); }, [groupBy, tab, filterMode, tagFilter, q]);
+
+  const allGroups = groupBy !== "none"
+    ? groupsOf(shown)
+    : [{ key:"__all", label:"", color:STUDY_ACCENT, rows:shown }];
+  const visibleGroups = (groupBy === "pos" && onlyPos)
+    ? allGroups.filter(g => g.key === onlyPos)
+    : allGroups;
   const starCount = vocab.filter(v=>v.starred).length;
   const wrongCount = vocab.filter(isOftenWrong).length;
   const polyCount = vocab.filter(isPolysemous).length;
@@ -549,6 +568,25 @@ function StudyVocab({ data, mutate, apiKey }) {
               </button>
             ))}
           </div>
+          {/* 품사 하나만 골라 보기 — 한꺼번에 보는 것과 따로 보는 것을 한 줄로 전환한다 */}
+          {groupBy === "pos" && allGroups.length > 1 && (
+            <div style={{ display:"flex", gap:5, marginTop:7, flexWrap:"wrap" }}>
+              <button onClick={()=>setOnlyPos(null)}
+                style={{ ...chip(!onlyPos, STUDY_ACCENT), padding:"5px 11px", fontSize:11 }}>
+                전체
+              </button>
+              {allGroups.map((g)=>(
+                <button key={g.key} onClick={()=>setOnlyPos(onlyPos===g.key ? null : g.key)}
+                  style={{ ...chip(onlyPos===g.key, g.color), padding:"5px 11px", fontSize:11,
+                    display:"flex", alignItems:"center", gap:5 }}>
+                  <span style={{ width:7, height:7, borderRadius:"50%", background:g.color }} />
+                  {g.label.replace(/\s*\(.*\)$/, "")}
+                  <span style={{ opacity:0.65, fontWeight:600 }}>{g.rows.length}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* 하나씩 넘겨 보기 · 듣기 — 지금 걸린 필터 범위를 그대로 물려받는다 */}
           {listed.length>0 && (browseOn ? (
             <BrowseCard rows={listed} idx={Math.min(bi, listed.length-1)} setIdx={setBi}
@@ -591,18 +629,24 @@ function StudyVocab({ data, mutate, apiKey }) {
           <div style={{ marginTop:11 }}>
             {listed.length===0 ? (
               <div style={{ fontSize:12, color:C.muted, padding:"12px 0", textAlign:"center" }}>해당하는 항목이 없어요</div>
-            ) : (groupBy !== "none" ? groupsOf(shown) : [["", shown]]).map(([sec, rows])=>(
-              <div key={sec||"__all"}>
+            ) : visibleGroups.map((g)=>(
+              <div key={g.key}>
                 {groupBy !== "none" && (
-                  <div style={{ display:"flex", alignItems:"center", gap:8, margin:"14px 0 2px",
-                    paddingBottom:5, borderBottom:`2px solid ${tint(STUDY_ACCENT,0.3)}` }}>
-                    <span style={{ fontSize:12, fontWeight:800, color:STUDY_ACCENT }}>
-                      {sec || (groupBy==="tag" ? "섹션 없음" : "기타")}
-                    </span>
-                    <span style={{ fontSize:10.5, color:C.muted }}>{rows.length}개</span>
-                  </div>
+                  <button onClick={()=>toggleFold(g.key)}
+                    style={{ display:"flex", alignItems:"center", gap:8, width:"100%",
+                      margin:"16px 0 2px", padding:"0 0 6px", cursor:"pointer",
+                      background:"none", border:"none", borderBottom:`2px solid ${tint(g.color,0.45)}`,
+                      textAlign:"left" }}>
+                    {/* 품사마다 색 점을 찍어 스크롤 중에도 어느 구간인지 바로 보이게 한다 */}
+                    <span style={{ width:9, height:9, borderRadius:"50%", background:g.color, flexShrink:0 }} />
+                    <span style={{ fontSize:13, fontWeight:800, color:g.color }}>{g.label}</span>
+                    <span style={{ fontSize:10.5, fontWeight:700, color:g.color, opacity:0.75,
+                      background:tint(g.color,0.14), borderRadius:999, padding:"2px 8px" }}>{g.rows.length}</span>
+                    <div style={{ flex:1 }} />
+                    <span style={{ fontSize:11, color:C.muted }}>{folded.includes(g.key) ? "▸ 펼치기" : "▾"}</span>
+                  </button>
                 )}
-                {rows.map((v)=>{
+                {(folded.includes(g.key) ? [] : g.rows).map((v)=>{
               const ti = vocabTypeInfo(v.type);
               const lv = num(v.level);
               const isG = v.type === "grammar";
@@ -615,9 +659,17 @@ function StudyVocab({ data, mutate, apiKey }) {
                       </span>
                       <span style={{ fontSize:9.5, fontWeight:800, color:ti.color, background:tint(ti.color,0.14),
                         borderRadius:999, padding:"1px 7px" }}>{ti.label}</span>
+                      {/* 품사 배지 — 테두리를 넣어 다른 배지(종류·오늘)와 확실히 구분되게 한다.
+                          품사가 2개 이상이면 앞에 표시를 붙여 한눈에 알아보게 한다. */}
+                      {posList(v.pos).length >= 2 && (
+                        <span style={{ fontSize:9, fontWeight:800, color:"#E08CFF",
+                          background:tint("#E08CFF",0.16), border:`1px solid ${tint("#E08CFF",0.45)}`,
+                          borderRadius:999, padding:"1px 6px" }}>다품사</span>
+                      )}
                       {posList(v.pos).map(pi=>(
-                        <span key={pi.k} style={{ fontSize:9.5, fontWeight:800, color:pi.color,
-                          background:tint(pi.color,0.14), borderRadius:999, padding:"1px 7px" }}>{pi.short}</span>
+                        <span key={pi.k} style={{ fontSize:10, fontWeight:800, color:pi.color,
+                          background:tint(pi.color,0.16), border:`1px solid ${tint(pi.color,0.4)}`,
+                          borderRadius:6, padding:"1px 7px" }}>{pi.short}</span>
                       ))}
                       {isMastered(v) && <span style={{ fontSize:9.5, fontWeight:800, color:TYPES.legs.color }}>✓ 외움</span>}
                       {isDueToday(v) && <span style={{ fontSize:9, fontWeight:800, color:STUDY_ACCENT,
